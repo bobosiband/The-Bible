@@ -20,6 +20,7 @@ import hashlib
 import json
 import re
 import sqlite3
+import sys
 from pathlib import Path
 
 import requests
@@ -42,6 +43,23 @@ DB_PATH = CORPUS_DIR / "bible.db"
 
 class CorpusIntegrityError(RuntimeError):
     """Raised when the loaded corpus does not match expected counts."""
+
+
+class LoaderChangedError(RuntimeError):
+    """Raised when the on-disk loader's SHA256 differs from the value that
+    produced the currently-loaded rows, and --force was not supplied.
+
+    This is the guard against the Stage 2 failure mode: a loader fix (e.g.
+    the closing-quote spacing patch) that would silently leave old, wrong
+    text in the DB because the row count still matches expected.
+    """
+
+
+def _loader_version() -> str:
+    """SHA256 of this module's source file. Kept as a function (not a
+    module-level constant) so tests can monkeypatch it to simulate a
+    loader change without editing the source."""
+    return sha256_file(Path(__file__))
 
 
 def download(url: str, dest: Path) -> None:
@@ -144,6 +162,10 @@ def init_schema(conn: sqlite3.Connection) -> None:
         );
         """
     )
+    # Additive migration for older DBs: loader_version was added in Stage 3.
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(corpus_meta)")}
+    if "loader_version" not in cols:
+        conn.execute("ALTER TABLE corpus_meta ADD COLUMN loader_version TEXT")
 
 
 def _count_rows(conn: sqlite3.Connection, translation: str) -> tuple[int, int, int]:
@@ -197,15 +219,16 @@ def write_corpus_meta(
     books: int,
     chapters: int,
     verses: int,
+    loader_version: str,
 ) -> None:
     """Upsert one row into corpus_meta so downstream tools can pin a run
-    to the exact corpus bytes that produced it."""
+    to the exact corpus bytes AND the exact loader logic that produced it."""
     conn.execute(
         """
         INSERT INTO corpus_meta
             (translation, source_url, retrieved_at, sha256_local, sha256_upstream,
-             book_count, chapter_count, verse_count)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+             book_count, chapter_count, verse_count, loader_version)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(translation) DO UPDATE SET
             source_url       = excluded.source_url,
             retrieved_at     = excluded.retrieved_at,
@@ -213,11 +236,20 @@ def write_corpus_meta(
             sha256_upstream  = excluded.sha256_upstream,
             book_count       = excluded.book_count,
             chapter_count    = excluded.chapter_count,
-            verse_count      = excluded.verse_count
+            verse_count      = excluded.verse_count,
+            loader_version   = excluded.loader_version
         """,
         (translation, source_url, retrieved_at, sha256_local, sha256_upstream,
-         books, chapters, verses),
+         books, chapters, verses, loader_version),
     )
+
+
+def _stored_loader_version(conn: sqlite3.Connection, translation: str) -> str | None:
+    row = conn.execute(
+        "SELECT loader_version FROM corpus_meta WHERE translation = ?",
+        (translation,),
+    ).fetchone()
+    return row[0] if row and row[0] else None
 
 
 def load_from_raw(
@@ -229,18 +261,51 @@ def load_from_raw(
     expected_books: int = EXPECTED_BOOKS,
     expected_chapters: int = EXPECTED_CHAPTERS,
     expected_verses: int = EXPECTED_VERSES,
+    force: bool = False,
 ) -> tuple[int, int, int]:
     """Load an already-parsed raw dict into SQLite. Idempotent — re-running
     against a fully-loaded DB inserts nothing new and asserts counts.
 
+    If `force=True`, wipes every existing row for the translation and
+    re-extracts from `raw`. Use this when the extractor changed and the
+    DB's stored text is stale even though the row count still matches.
+
+    If the loader source has changed since the last load and `force=False`,
+    raises LoaderChangedError with instructions. This closes the Stage 2
+    failure mode where a fix in `_verse_text` had no effect on a full DB.
+
     Returns (books, chapters, verses)."""
     translation_id = raw["translation"]["id"]
     sha_upstream = raw["translation"].get("sha256")
+    current_loader = _loader_version()
 
     db_path.parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(db_path) as conn:
         init_schema(conn)
         _, _, existing = _count_rows(conn, translation_id)
+        stored_loader = _stored_loader_version(conn, translation_id)
+
+        loader_changed = (
+            existing > 0
+            and stored_loader is not None
+            and stored_loader != current_loader
+        )
+        if loader_changed and not force:
+            raise LoaderChangedError(
+                f"loader source has changed since the current corpus was loaded.\n"
+                f"  stored loader_version: {stored_loader}\n"
+                f"  current loader_version: {current_loader}\n"
+                f"Re-run with --force (or force=True) to wipe and re-extract; "
+                f"the extractor may produce different text and the DB's stored "
+                f"text is stale until you do."
+            )
+
+        if force:
+            conn.execute(
+                "DELETE FROM verses WHERE translation = ?", (translation_id,)
+            )
+            existing = 0
+
         if existing != expected_verses:
             rows = list(iter_verses(raw))
             conn.executemany(
@@ -267,27 +332,40 @@ def load_from_raw(
             books=books,
             chapters=chapters,
             verses=verses,
+            loader_version=current_loader,
         )
         conn.commit()
     return books, chapters, verses
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    import argparse
+    p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    p.add_argument(
+        "--force", action="store_true",
+        help="Wipe existing rows and re-extract from the raw file. Required "
+             "after a loader change; otherwise refused if a mismatch is detected.",
+    )
+    args = p.parse_args(argv)
+
     download(BSB_URL, RAW_PATH)
     raw = json.loads(RAW_PATH.read_text())
     sha_local = sha256_file(RAW_PATH)
-    # Use the raw file's mtime as retrieval time (that's when the bytes
-    # arrived; wall clock at *load* is later and less useful for provenance).
     retrieved_at = (
         dt.datetime.fromtimestamp(RAW_PATH.stat().st_mtime, tz=dt.timezone.utc)
         .isoformat(timespec="seconds")
     )
-    books, chapters, verses = load_from_raw(
-        raw, DB_PATH,
-        source_url=BSB_URL,
-        sha256_local=sha_local,
-        retrieved_at=retrieved_at,
-    )
+    try:
+        books, chapters, verses = load_from_raw(
+            raw, DB_PATH,
+            source_url=BSB_URL,
+            sha256_local=sha_local,
+            retrieved_at=retrieved_at,
+            force=args.force,
+        )
+    except LoaderChangedError as e:
+        print(f"[refuse] {e}", file=sys.stderr)
+        return 2
     print(
         f"[done] {DB_PATH.name}: {books} books, {chapters} chapters, "
         f"{verses} verses (sha256={sha_local[:12]}…)"

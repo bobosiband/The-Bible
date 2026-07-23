@@ -13,10 +13,12 @@ import pytest
 
 from src.ingest.bsb import (
     CorpusIntegrityError,
+    LoaderChangedError,
     load_from_raw,
     sha256_file,
     verify_counts,
 )
+from src.ingest import bsb as ingest_module
 
 # Minimal raw dict in the same shape as helloao's complete.json.
 TINY_RAW = {
@@ -155,3 +157,68 @@ def test_verify_counts_reports_multiple_problems(tmp_path):
                       expected_books=2, expected_chapters=3, expected_verses=4)
     msg = str(exc.value)
     assert "books" in msg and "chapters" in msg and "verses" in msg
+
+
+# ---------------------------------------------------------------------------
+# Task 2a — force reingest and loader_version guard
+# ---------------------------------------------------------------------------
+
+def _mutate_one_verse(db_path: Path) -> None:
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "UPDATE verses SET text = 'TAMPERED' WHERE book='Genesis' AND chapter=1 AND verse=1"
+        )
+        conn.commit()
+
+
+def test_reload_without_force_and_unchanged_loader_leaves_text_alone(tmp_path):
+    """Baseline: with the same loader version and no force, a re-run does
+    NOT re-extract — this is the existing idempotency behaviour and it must
+    stay in place so ordinary re-runs are cheap."""
+    db_path = tmp_path / "bible.db"
+    load_from_raw(TINY_RAW, db_path, **TINY_EXPECTED)
+    _mutate_one_verse(db_path)
+    load_from_raw(TINY_RAW, db_path, **TINY_EXPECTED)
+    with _open(db_path) as conn:
+        (text,) = conn.execute(
+            "SELECT text FROM verses WHERE book='Genesis' AND chapter=1 AND verse=1"
+        ).fetchone()
+    assert text == "TAMPERED"
+
+
+def test_reload_refuses_when_loader_changed_without_force(tmp_path, monkeypatch):
+    """Simulate a loader source edit: the stored loader_version no longer
+    matches the running one. Without --force the loader MUST refuse rather
+    than leave stale text in the DB — that was the Stage 2 failure mode."""
+    db_path = tmp_path / "bible.db"
+    load_from_raw(TINY_RAW, db_path, **TINY_EXPECTED)
+    _mutate_one_verse(db_path)
+
+    monkeypatch.setattr(ingest_module, "_loader_version", lambda: "new-loader-hash-" + "0" * 48)
+    with pytest.raises(LoaderChangedError) as exc:
+        load_from_raw(TINY_RAW, db_path, **TINY_EXPECTED)
+    msg = str(exc.value)
+    assert "new-loader-hash" in msg
+    assert "--force" in msg
+
+
+def test_force_reload_restores_text_after_loader_change(tmp_path, monkeypatch):
+    """With --force, a changed loader wipes and re-extracts. The tampered
+    verse gets its original text back and there are no duplicate rows."""
+    db_path = tmp_path / "bible.db"
+    load_from_raw(TINY_RAW, db_path, **TINY_EXPECTED)
+    _mutate_one_verse(db_path)
+
+    monkeypatch.setattr(ingest_module, "_loader_version", lambda: "new-loader-hash-" + "0" * 48)
+    load_from_raw(TINY_RAW, db_path, force=True, **TINY_EXPECTED)
+
+    with _open(db_path) as conn:
+        (text,) = conn.execute(
+            "SELECT text FROM verses WHERE book='Genesis' AND chapter=1 AND verse=1"
+        ).fetchone()
+        (n,) = conn.execute("SELECT COUNT(*) FROM verses").fetchone()
+    assert text.startswith("In the beginning")
+    assert n == 3  # no duplicates after wipe-and-reload
+    with _open(db_path) as conn:
+        meta = conn.execute("SELECT loader_version FROM corpus_meta").fetchone()
+    assert meta["loader_version"] == "new-loader-hash-" + "0" * 48
