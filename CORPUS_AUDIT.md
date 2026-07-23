@@ -106,3 +106,75 @@ Every present file is documented in SOURCES.md:
 - `bible.db` — gitignored, regenerable
 
 No undocumented files.
+
+---
+
+## Stage 4 verification
+
+Date: 2026-07-24. First time the Stage 2 fidelity claims have been
+executed against a real ingested DB with the loader_version guard in
+place.
+
+### Forced re-ingest
+
+Command:
+
+```
+$ python -m src.ingest.bsb --force
+[skip] bsb_complete.json already downloaded
+[done] bible.db: 66 books, 1189 chapters, 31086 verses (sha256=5cb6ce27311d…)
+```
+
+### `corpus_meta` after `--force`
+
+| Field           | Value |
+|-----------------|-------|
+| `translation`   | `BSB` |
+| `source_url`    | `https://bible.helloao.org/api/BSB/complete.json` |
+| `retrieved_at`  | `2026-07-23T05:50:34+00:00` |
+| `sha256_local`  | `5cb6ce27311dda29cb94c10bb968e6185a21f563fb273b2d0e23b833c84f2711` |
+| `sha256_upstream` | `6cc5238e442b4204b0f617cc5c932bc04f3bae4a0658e6393b0e319653ebe37f` |
+| `book_count`    | `66` |
+| `chapter_count` | `1189` |
+| `verse_count`   | `31086` |
+| `loader_version`| `11ca4f036948096f840c7a984b473324c23238cfb2c392eb6464d44c6d5f5977` |
+
+The `sha256_local` matches the pinned `EXPECTED_SHA256` in
+`src/ingest/bsb.py` and the value documented in `SOURCES.md`. The
+`--force` path also confirmed the upstream file has not changed.
+
+### Verse-text drift from the forced reload
+
+Row-by-row diff of every verse's text before and after `--force`:
+
+- Rows differing: **0** out of 31,086.
+- SHA256 of the concatenated (book|chapter|verse|text) stream: identical
+  pre- and post-force (`abf0d4d637960761eddf577f57f6c48a56857caddccc2a01fba00d91b8a838eb`).
+
+The DB was already carrying the post-Stage-2 corrected text (the
+closing-quote spacing fix). This is expected: the ingest was re-run
+after that fix in Stage 2. The `--force` run confirms it beyond doubt
+and establishes a fresh `loader_version` fingerprint tied to the
+current `src/ingest/bsb.py`.
+
+### `pytest --require-corpus` result
+
+```
+============================= 199 passed in 0.46s ==============================
+```
+
+Notably:
+
+- `tests/test_book_map_consistency.py` — **3 passed**. All 66 parser
+  canonical names resolve against the DB and all 66 DB names
+  round-trip through `normalize_book`. `Song of Solomon` (the
+  fragility candidate) is intact on both sides.
+- `tests/test_corpus_text.py` — **22 passed**. Every whole-corpus
+  assertion (no `[object`, no `noteId`, no double spaces, no space
+  before closing curly quote, etc.) holds.
+- `tests/test_ingest.py` — **12 passed**, including all Stage 3
+  loader-guard and idempotency tests.
+
+Corpus fidelity is now claimed against a real DB, not asserted in the
+abstract.
+
