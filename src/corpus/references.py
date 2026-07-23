@@ -312,6 +312,44 @@ def normalize_book(name: str) -> str | None:
     return _LOOKUP.get(_normalize(name))
 
 
+# ---------------------------------------------------------------------------
+# Serialisation — shared between the eval runner (writes) and the citation
+# checker (reads). Kept in ONE module so the two halves can't drift.
+# ---------------------------------------------------------------------------
+
+_REFERENCE_FIELDS = (
+    "book", "chapter", "verse", "end_verse", "end_chapter", "start", "end",
+)
+
+
+def reference_to_dict(ref: Reference) -> dict:
+    """Serialise a Reference to the sub-schema documented in docs/SCHEMAS.md
+    (`refs_in_answer[]` object)."""
+    return {name: getattr(ref, name) for name in _REFERENCE_FIELDS}
+
+
+def reference_from_dict(d: dict) -> Reference:
+    """Inverse of `reference_to_dict`. Missing optional fields default
+    to None so old run files without `end_chapter`/`start`/`end` (from
+    before Stage 3) still deserialise."""
+    if not isinstance(d, dict):
+        raise TypeError(f"reference_from_dict expected dict, got {type(d).__name__}")
+    try:
+        book = d["book"]
+        chapter = d["chapter"]
+    except KeyError as e:
+        raise ValueError(f"reference dict missing required field: {e}")
+    return Reference(
+        book=book,
+        chapter=chapter,
+        verse=d.get("verse"),
+        end_verse=d.get("end_verse"),
+        end_chapter=d.get("end_chapter"),
+        start=d.get("start"),
+        end=d.get("end"),
+    )
+
+
 class ReferenceParseError(ValueError):
     """Raised by `parse_reference` on any input that is not exactly one
     complete reference. Distinct from bare ValueError so callers can

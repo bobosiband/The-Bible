@@ -13,6 +13,8 @@ from src.corpus.references import (
     ReferenceParseError,
     parse_reference,
     parse_references,
+    reference_from_dict,
+    reference_to_dict,
 )
 
 
@@ -164,3 +166,51 @@ def test_out_of_range_verse_parses_fine():
 def test_out_of_range_chapter_parses_fine():
     ref = parse_reference("Psalm 151:1")
     assert ref == Reference("Psalms", 151, 1)
+
+
+# ---------------------------------------------------------------------------
+# Shared serde — writer and reader agree
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("ref", [
+    Reference("John", 3, 16),
+    Reference("Psalms", 23),
+    Reference("1 Corinthians", 13, 4, 7),
+    Reference("Genesis", 1, 1, 3, end_chapter=2),
+    Reference("Jude", 1, 5),
+])
+def test_reference_serde_round_trip(ref):
+    """to_dict → from_dict yields an equal Reference (equality ignores
+    spans; the dict does preserve them so they survive the round-trip too)."""
+    d = reference_to_dict(ref)
+    reconstructed = reference_from_dict(d)
+    assert reconstructed == ref
+
+
+def test_reference_serde_preserves_spans():
+    """Spans matter to the citation checker even though they're excluded
+    from equality — nearby_text needs them."""
+    ref = Reference("John", 3, 16, start=42, end=51)
+    d = reference_to_dict(ref)
+    r2 = reference_from_dict(d)
+    assert r2.start == 42
+    assert r2.end == 51
+
+
+def test_reference_from_dict_tolerates_missing_optional_fields():
+    """Old run files may not carry end_chapter/start/end. Deserialisation
+    fills them with None rather than erroring."""
+    r = reference_from_dict({"book": "John", "chapter": 3, "verse": 16})
+    assert r == Reference("John", 3, 16)
+
+
+def test_reference_from_dict_rejects_missing_required_fields():
+    with pytest.raises(ValueError):
+        reference_from_dict({"chapter": 3, "verse": 16})
+    with pytest.raises(ValueError):
+        reference_from_dict({"book": "John", "verse": 16})
+
+
+def test_reference_from_dict_rejects_non_dict():
+    with pytest.raises(TypeError):
+        reference_from_dict(["John", 3, 16])

@@ -27,12 +27,11 @@ import sqlite3
 import subprocess
 import sys
 import time
-from dataclasses import asdict
 from pathlib import Path
 
 import ollama
 
-from src.corpus.references import parse_references
+from src.corpus.references import parse_references, reference_to_dict
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_QUESTIONS = REPO_ROOT / "data" / "eval" / "questions.jsonl"
@@ -168,12 +167,8 @@ def ask(
     return content
 
 
-def _ref_to_dict(ref) -> dict:
-    """Serialise a Reference into the frozen refs_in_answer sub-schema."""
-    d = asdict(ref)
-    # asdict includes every field including start/end (compare=False fields).
-    # Field order is deterministic (dataclass insertion order).
-    return d
+# Reference serialisation lives in src.corpus.references so the runner
+# and the citation checker use the same code path. Do not re-implement.
 
 
 # ---------------------------------------------------------------------------
@@ -282,7 +277,7 @@ def run(
                 record["answer"] = answer
                 # Extraction only. No filtering, no scoring, no judgement.
                 record["refs_in_answer"] = [
-                    _ref_to_dict(r) for r in parse_references(answer or "")
+                    reference_to_dict(r) for r in parse_references(answer or "")
                 ]
             except Exception as e:
                 # Per brief: on failure, record and continue — never abort
