@@ -1,7 +1,8 @@
 # Corpus sources
 
-Every downloaded corpus file is recorded here with its origin, license, and
-integrity information. Hashes computed locally over on-disk bytes take
+Every corpus or raw-reference file in the repo is recorded here with its
+origin, license, and integrity information — including files that no code
+path currently loads. Hashes computed locally over on-disk bytes take
 precedence over any hash supplied by the source itself.
 
 ## BSB — Berean Standard Bible
@@ -54,6 +55,50 @@ precedence over any hash supplied by the source itself.
 > `available_translations.json` and is the number the loader asserts
 > against. It is intentionally lower than 31,102.
 
+## KJV — Project Gutenberg (raw reference file)
+
+### Provenance
+
+- **Publisher / distributor**: Project Gutenberg — https://www.gutenberg.org/
+- **Best-match catalogue entry**: PG ebook **#10**, *The King James Bible*
+  — https://www.gutenberg.org/ebooks/10
+- **Local file**: `resources/bible.txt` (4,351,186 bytes)
+- **File mtime (as-received)**: 2026-02-24
+- **Header identifiers**: This particular file has been stripped of the
+  standard `*** START OF PROJECT GUTENBERG EBOOK ***` markers and does
+  not carry an explicit ebook number in its own header. The Project
+  Gutenberg footer (Sections 1–5 of the Project Gutenberg-tm licence and
+  contact information for the Literary Archive Foundation) *is* intact
+  at the end of the file. Text content matches the KJV verbatim
+  (`1:1 In the beginning God created the heaven and the earth.` etc.).
+  PG #10 is the canonical PG KJV.
+
+### License
+
+- **KJV text itself**: **Public domain in the United States** (and in
+  most jurisdictions worldwide, notwithstanding the UK Crown copyright
+  peculiarity for KJV printings in the UK).
+- **Project Gutenberg trademark licence** (present verbatim in the file's
+  footer): the KJV text is public domain, but the PG *trademark* licence
+  attached to this file governs redistribution *under the Project
+  Gutenberg name*. If we ever redistribute this file with the PG footer
+  attached, the trademark licence conditions apply. Extracting the
+  underlying KJV text without the PG trademark and boilerplate is
+  unconstrained (it is public-domain text).
+
+### Integrity
+
+- **SHA256 (computed locally over `resources/bible.txt` as-is)**:
+  `a7823af1c27c0409f4a0f75c78c396b475591c2ae79ec52bd58638297770473f`
+
+### Loaded by
+
+> **NOT LOADED BY ANY CODE PATH.** `resources/bible.txt` is present as a
+> raw reference file only. Nothing in `src/` reads it. The active corpus
+> is BSB (`data/corpus/bible.db`); the KJV file is retained for future
+> comparison / cross-reference work should the repo owner want it, and
+> is *not* wired into ingest, parser, eval, or tests.
+
 ## Files in `data/corpus/` (audited 2026-07-24)
 
 | File                | Status     | Notes |
@@ -62,4 +107,10 @@ precedence over any hash supplied by the source itself.
 | `bsb_complete.json` | Gitignored | Raw download cache. Regenerable by re-running `python -m src.ingest.bsb`. |
 | `bible.db`          | Gitignored | SQLite corpus loaded from `bsb_complete.json`. |
 
-No undocumented files present.
+## Files in `resources/` (audited 2026-07-24)
+
+| File          | Status    | Notes |
+|---------------|-----------|-------|
+| `bible.txt`   | Committed | Project Gutenberg KJV, raw reference only, **not loaded**. See KJV section above. |
+
+No undocumented files present in either directory.
