@@ -209,18 +209,53 @@ def test_within_chapter_range_matt():
 # 7. Comma lists
 # ---------------------------------------------------------------------------
 
-def test_comma_list_of_chapter_verse_currently_only_takes_first():
-    """'Romans 3:23, 6:23' currently returns only [Romans 3:23]. The second
-    chapter:verse after the comma is not treated as a continuation."""
+def test_comma_list_of_chapter_verse_emits_two_refs():
+    """Stage 3 ruling on audit row 15: 'Romans 3:23, 6:23' produces two
+    references. The second chapter:verse after the comma inherits the
+    same book."""
     assert parse_references("Romans 3:23, 6:23") == [
-        Reference("Romans", 3, 23)
+        Reference("Romans", 3, 23),
+        Reference("Romans", 6, 23),
     ]
 
 
-def test_comma_list_of_verses_currently_only_takes_first():
-    """'John 1:1, 14' currently returns only [John 1:1]. Comma-separated
-    verses within the same chapter are not honoured."""
-    assert parse_references("John 1:1, 14") == [Reference("John", 1, 1)]
+def test_comma_list_of_bare_verses_inherits_chapter():
+    """Stage 3 ruling on audit row 16: 'John 1:1, 14' produces two refs —
+    the bare `14` after the comma inherits the previous chapter."""
+    assert parse_references("John 1:1, 14") == [
+        Reference("John", 1, 1),
+        Reference("John", 1, 14),
+    ]
+
+
+def test_comma_list_chains_more_than_two_refs():
+    """'Rom 3:23, 6:23, 8:28' emits three continuations, all inheriting
+    the same book."""
+    refs = parse_references("Rom 3:23, 6:23, 8:28")
+    assert refs == [
+        Reference("Romans", 3, 23),
+        Reference("Romans", 6, 23),
+        Reference("Romans", 8, 28),
+    ]
+
+
+def test_comma_after_whole_chapter_ref_does_not_continue():
+    """When the base ref had no explicit verse (whole-chapter form like
+    'Ps 23'), a comma-number after it is ambiguous. The parser leaves
+    it alone rather than guess."""
+    refs = parse_references("Ps 23, 24")
+    assert [str(r) for r in refs] == ["Psalms 23"]
+
+
+def test_continuation_spans_point_into_original_text():
+    """Each continuation ref must carry accurate start/end offsets into
+    the original input string, not into the base ref's span."""
+    text = "Romans 3:23, 6:23"
+    refs = parse_references(text)
+    assert text[refs[0].start:refs[0].end] == "Romans 3:23"
+    # The continuation span begins at the comma (start >= previous end).
+    assert refs[1].start >= refs[0].end
+    assert text[refs[1].start:refs[1].end].strip().endswith("6:23")
 
 
 # ---------------------------------------------------------------------------

@@ -161,6 +161,16 @@ _REF_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Comma-continuation after a base ref:
+#   ", chapter:verse[-endchapter:endverse | -endverse]"
+#   ", verse[-endverse]"   (bare number → inherits chapter)
+# See PARSER_AUDIT.md rows 15-16 for the ruling.
+_CONT_RE = re.compile(
+    r"\s*,\s*(?P<c1>\d{1,3})"
+    r"(?:\s*:\s*(?P<v1>\d{1,3}))?"
+    r"(?:\s*[-–]\s*(?P<end>\d{1,3})(?:\s*:\s*(?P<end2>\d{1,3}))?)?"
+)
+
 
 @dataclass(frozen=True)
 class Reference:
@@ -217,13 +227,27 @@ def parse_references(text: str, *, dedupe: bool = False) -> list[Reference]:
     cleaned = text.replace(".", " ")
     results: list[Reference] = []
     seen: set[Reference] = set()
-    for m in _REF_RE.finditer(cleaned):
+
+    def _emit(ref: Reference) -> None:
+        if dedupe:
+            if ref in seen:
+                return
+            seen.add(ref)
+        results.append(ref)
+
+    pos = 0
+    while pos < len(cleaned):
+        m = _REF_RE.search(cleaned, pos)
+        if not m:
+            break
         book_key = _normalize(m.group("book"))
         canonical = _LOOKUP.get(book_key)
         if canonical is None:
+            pos = m.end()
             continue
         chapter = int(m.group("chapter"))
-        verse = int(m.group("verse")) if m.group("verse") else None
+        had_explicit_verse = m.group("verse") is not None
+        verse = int(m.group("verse")) if had_explicit_verse else None
         end1 = int(m.group("end")) if m.group("end") else None
         end2 = int(m.group("end2")) if m.group("end2") else None
         if end2 is not None:
@@ -232,9 +256,6 @@ def parse_references(text: str, *, dedupe: bool = False) -> list[Reference]:
         else:
             end_chapter, end_verse = None, end1
         # Guard against nonsensical within-chapter ranges like "13:7-4".
-        # For cross-chapter, we accept c2>=c1 as valid; if c2<c1 it's odd
-        # but rare enough that we just leave both fields as-parsed rather
-        # than second-guess.
         if (end_chapter is None and verse is not None
                 and end_verse is not None and end_verse < verse):
             end_verse = None
@@ -243,16 +264,50 @@ def parse_references(text: str, *, dedupe: bool = False) -> list[Reference]:
         if (canonical in SINGLE_CHAPTER_BOOKS
                 and verse is None and end_verse is None and end_chapter is None):
             chapter, verse = 1, chapter
-        ref = Reference(
+        _emit(Reference(
             canonical, chapter, verse, end_verse,
             end_chapter=end_chapter,
             start=m.start(), end=m.end(),
-        )
-        if dedupe:
-            if ref in seen:
-                continue
-            seen.add(ref)
-        results.append(ref)
+        ))
+        last_end = m.end()
+
+        # Comma continuations. Only apply after a ref that carried an
+        # explicit verse — "Ps 23, 24" is too ambiguous to guess at.
+        # Continuations inherit the book. If the continuation has its
+        # own chapter (comma-c:v) it uses that; if it's bare (comma-v)
+        # it inherits the previous ref's chapter.
+        cont_chapter = chapter
+        if had_explicit_verse:
+            while True:
+                cm = _CONT_RE.match(cleaned, last_end)
+                if not cm:
+                    break
+                c1 = int(cm.group("c1"))
+                v1 = int(cm.group("v1")) if cm.group("v1") else None
+                cend1 = int(cm.group("end")) if cm.group("end") else None
+                cend2 = int(cm.group("end2")) if cm.group("end2") else None
+                if v1 is not None:
+                    # "c:v" form → new chapter+verse
+                    cur_chapter, cur_verse = c1, v1
+                else:
+                    # bare "v" form → inherit chapter, use c1 as verse
+                    cur_chapter, cur_verse = cont_chapter, c1
+                if cend2 is not None:
+                    cur_end_chapter, cur_end_verse = cend1, cend2
+                else:
+                    cur_end_chapter, cur_end_verse = None, cend1
+                if (cur_end_chapter is None and cur_end_verse is not None
+                        and cur_end_verse < cur_verse):
+                    cur_end_verse = None
+                _emit(Reference(
+                    canonical, cur_chapter, cur_verse, cur_end_verse,
+                    end_chapter=cur_end_chapter,
+                    start=cm.start(), end=cm.end(),
+                ))
+                cont_chapter = cur_chapter
+                last_end = cm.end()
+
+        pos = last_end
     return results
 
 
