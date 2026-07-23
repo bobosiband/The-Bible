@@ -234,32 +234,47 @@ during this stage.
 
 ---
 
-## Open decisions (for the repo owner)
+## Open decisions (Stage 2 audit — rulings applied in Stage 3)
 
-One row per FAIL. The **Ruling** column is intentionally blank — the
-audit surfaces the choice, the owner makes it. No recommendations.
+Ruling column filled after the Stage 3 review. **FIX** entries have been
+implemented in the commit named in the Ruling column; **DEFER** entries
+remain deliberately unaddressed and are still failing (locked in the
+adversarial test suite as documented behaviour).
 
-| # | Case | Current behaviour | Ruling |
-|---|------|-------------------|--------|
-| 1 | `Jude 5` | Returns `Reference("Jude", 5)` (as chapter) | |
-| 2 | `Obadiah 3` | Returns `Reference("Obadiah", 3)` (as chapter) | |
-| 3 | `Philemon 6` | Returns `Reference("Philemon", 6)` (as chapter) | |
-| 4 | `2 John 4` | Returns `Reference("2 John", 4)` (as chapter) | |
-| 5 | `3 John 2` | Returns `Reference("3 John", 2)` (as chapter) | |
-| 6 | `I Cor 13:4` | Returns `[]`; roman numerals not in book map | |
-| 7 | `II Tim 3:16` | Returns `[]`; roman numerals not in book map | |
-| 8 | `III John 2` | Returns `Reference("John", 2)` — misparses to a different book | |
-| 9 | `1 Cor` (bare) | Returns `[]`; no chapter required to match | |
-|10 | `1Cor` (bare, no space) | Returns `[]` | |
-|11 | `1 Jn` (bare) | Returns `[]` | |
-|12 | `1John` (bare, no space) | Returns `[]` | |
-|13 | `Genesis 1:1-2:3` | Returns `Reference("Genesis", 1, 1, 2)` — cross-chapter range not modelled | |
-|14 | `Ps 22:1-23:6` | Returns `Reference("Psalms", 22, 1, 23)` — same | |
-|15 | `Romans 3:23, 6:23` | Returns only first ref; comma list ignored | |
-|16 | `John 1:1, 14` | Returns only first ref; comma-verse ignored | |
-|17 | `Qoheleth 1:1` | Returns `[]`; alt name not in book map | |
-|18 | `Ecclesiastes` (bare) | Returns `[]`; same as §3 bare-book question | |
-|19 | `Jude 26` (lookup) | `get_range` returns `[]` because chapter 26 doesn't exist — knock-on from §1 | |
-|20 | `Obadiah 22` (lookup) | `get_range` returns `[]` — knock-on from §1 | |
-|21 | `parse_references(12345)` | Raises `AttributeError`; spec says no unhandled exceptions | |
-|22 | Extraction FP `Acts 2` | Greedy book+chapter match ignores contradicting `chapter three` immediately after | |
+| # | Case | Current behaviour (pre-Stage 3) | Ruling |
+|---|------|--------------------------------|--------|
+| 1 | `Jude 5` | Returned `Reference("Jude", 5)` (as chapter) | **FIX** — applied in `fdd46b5` (now `Jude 1:5`) |
+| 2 | `Obadiah 3` | Returned `Reference("Obadiah", 3)` (as chapter) | **FIX** — applied in `fdd46b5` |
+| 3 | `Philemon 6` | Returned `Reference("Philemon", 6)` (as chapter) | **FIX** — applied in `fdd46b5` |
+| 4 | `2 John 4` | Returned `Reference("2 John", 4)` (as chapter) | **FIX** — applied in `fdd46b5` |
+| 5 | `3 John 2` | Returned `Reference("3 John", 2)` (as chapter) | **FIX** — applied in `fdd46b5` |
+| 6 | `I Cor 13:4` | Returned `[]`; roman numerals not in book map | **FIX** — applied in `1e2db6f` |
+| 7 | `II Tim 3:16` | Returned `[]`; roman numerals not in book map | **FIX** — applied in `1e2db6f` |
+| 8 | `III John 2` | Returned `Reference("John", 2)` — misparsed to a different book | **FIX** — applied in `5a8063f` (now `3 John 1:2` after rows 1-5) |
+| 9 | `1 Cor` (bare) | Returns `[]`; no chapter required to match | **DEFER** — a whole book is not a citation. Revisit with retrieval. |
+|10 | `1Cor` (bare, no space) | Returns `[]` | **DEFER** — same as row 9 |
+|11 | `1 Jn` (bare) | Returns `[]` | **DEFER** — same as row 9 |
+|12 | `1John` (bare, no space) | Returns `[]` | **DEFER** — same as row 9 |
+|13 | `Genesis 1:1-2:3` | Returned `Reference("Genesis", 1, 1, 2)` — cross-chapter range truncated | **FIX** — applied in `be28073` (now `end_chapter=2, end_verse=3`) |
+|14 | `Ps 22:1-23:6` | Returned `Reference("Psalms", 22, 1, 23)` — same | **FIX** — applied in `be28073` |
+|15 | `Romans 3:23, 6:23` | Returned only first ref; comma list ignored | **FIX** — applied in `936ff80` (now two refs) |
+|16 | `John 1:1, 14` | Returned only first ref; comma-verse ignored | **FIX** — applied in `936ff80` |
+|17 | `Qoheleth 1:1` | Returns `[]`; alt name not in book map | **DEFER** — low value. `Qoh` is already accepted. |
+|18 | `Ecclesiastes` (bare) | Returns `[]`; same as §3 bare-book question | **DEFER** — same as rows 9-12 |
+|19 | `Jude 26` (lookup) | `get_range` returned `[]` because chapter 26 doesn't exist | **FIX** — falls out of rows 1-5. Confirmed in `5747162` (parses as 1:26, lookup returns None). |
+|20 | `Obadiah 22` (lookup) | `get_range` returned `[]` — knock-on from row 1-5 | **FIX** — same commit `5747162` |
+|21 | `parse_references(12345)` | Raised `AttributeError`; spec says no unhandled exceptions | **FIX** — applied in `983628d` (non-str returns `[]`) |
+|22 | Extraction FP `Acts 2` | Greedy book+chapter match ignored contradicting `chapter three` | **DEFER** — do not chase with heuristics; better fix later via span-aware context checks in citation_check |
+
+## New open decisions surfaced during Stage 3 fixes
+
+These arose while implementing the FIX rulings above. They are not
+currently tested and the parser leaves them undefined. Recorded here
+so they aren't lost.
+
+| # | Case | Current behaviour | Notes |
+|---|------|-------------------|-------|
+| N1 | `Jude 5-7` — single-chapter book with dash range, no colon | The regex requires a colon before dashes, so `Jude 5-7` parses as `Jude 1:5` and the `-7` is silently dropped. | A natural extension would be to treat the second number as an end-verse when the base ref is a single-chapter book. Not attempted this stage — needs a ruling on whether the same regex extension should also allow chapter ranges like `Rev 22-23` for multi-chapter books, which is a bigger design question. |
+| N2 | `Psalm 23, 24` — comma continuation after a whole-chapter ref | Currently returns only `[Psalms 23]`. A user could mean "chapters 23 and 24" or "chapter 23 verse 24" — ambiguous. | The parser only continues after a base ref that carried an explicit verse. Ruling deferred. |
+| N3 | Cross-chapter comma continuation like `Genesis 1:1-2:3, 5:6` | The base cross-chapter ref parses correctly and the continuation `5:6` emits a second ref (Genesis 5:6). Test coverage is thin here — worth confirming this matches intent. | Verified informally; no locked-in test. |
+| N4 | `get_range` return shape now varies with `end_chapter` | With `end_chapter=None` returns `list[tuple[verse, text]]`; with `end_chapter=N` returns `list[tuple[chapter, verse, text]]`. Callers must know which shape to expect. | Documented in the function's docstring. A follow-up could split into two functions if the dual shape causes bugs in practice. |
