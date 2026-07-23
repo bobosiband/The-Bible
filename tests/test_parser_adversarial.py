@@ -67,12 +67,42 @@ def test_abbreviations_with_or_without_periods(text, expected):
 # 3. Roman numerals and no-space forms
 # ---------------------------------------------------------------------------
 
-def test_roman_i_cor_currently_not_recognised():
-    assert parse_references("I Cor 13:4") == []
+def test_roman_i_cor_resolves_to_1_corinthians():
+    """Stage 3 ruling on audit row 6: I/II/III Roman prefixes are accepted."""
+    assert parse_references("I Cor 13:4") == [
+        Reference("1 Corinthians", 13, 4)
+    ]
 
 
-def test_roman_ii_tim_currently_not_recognised():
-    assert parse_references("II Tim 3:16") == []
+def test_roman_ii_tim_resolves_to_2_timothy():
+    """Stage 3 ruling on audit row 7."""
+    assert parse_references("II Tim 3:16") == [
+        Reference("2 Timothy", 3, 16)
+    ]
+
+
+@pytest.mark.parametrize("text, canonical", [
+    ("I Sam 3:10",   "1 Samuel"),
+    ("II Sam 7:1",   "2 Samuel"),
+    ("I Kgs 8:1",    "1 Kings"),
+    ("II Kgs 2:11",  "2 Kings"),
+    ("I Chr 29:11",  "1 Chronicles"),
+    ("II Chr 7:14",  "2 Chronicles"),
+    ("II Cor 5:17",  "2 Corinthians"),
+    ("I Thess 5:16", "1 Thessalonians"),
+    ("II Thess 3:3", "2 Thessalonians"),
+    ("I Tim 6:12",   "1 Timothy"),
+    ("I Pet 5:7",    "1 Peter"),
+    ("II Pet 3:9",   "2 Peter"),
+    ("I Jn 1:9",     "1 John"),
+    ("II Jn 6",      "2 John"),
+])
+def test_roman_prefixes_across_all_numbered_books(text, canonical):
+    """Sanity sweep: every numbered book of the Bible resolves via I/II
+    (and 3 John via III, already covered separately by row 8)."""
+    refs = parse_references(text)
+    assert refs, f"{text!r} produced no refs"
+    assert refs[0].book == canonical
 
 
 def test_roman_iii_john_routes_to_3_john():
