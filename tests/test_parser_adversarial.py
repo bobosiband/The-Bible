@@ -266,6 +266,28 @@ def test_single_chapter_book_out_of_range_verse_parses_but_lookup_fails():
     assert get_verse("Jude", 1, 26) is None
 
 
+@pytest.mark.corpus
+def test_audit_rows_19_20_jude_26_and_obadiah_22_parse_then_fail_cleanly():
+    """Stage 3 ruling on audit rows 19-20 — follows from rows 1-5.
+
+    Both books are single-chapter and both lookups reference a verse past
+    the end of the book. The parser must produce a well-formed Reference
+    (chapter 1, verse N), and the DB layer must be what signals 'not
+    present'. The two-layer signal is important for the citation checker:
+    'parse failure' means the model wrote gibberish; 'lookup failure' means
+    the model wrote a plausible-looking but nonexistent citation."""
+    (jude,) = parse_references("Jude 26")
+    (obad,) = parse_references("Obadiah 22")
+    assert jude == Reference("Jude", 1, 26)
+    assert obad == Reference("Obadiah", 1, 22)
+    # Real book lengths: Jude has 25 verses; Obadiah has 21.
+    assert get_verse("Jude", 1, 26) is None
+    assert get_verse("Obadiah", 1, 22) is None
+    # And the still-present valid verses do resolve.
+    assert get_verse("Jude", 1, 25) is not None
+    assert get_verse("Obadiah", 1, 21) is not None
+
+
 # ---------------------------------------------------------------------------
 # 11. Malformed inputs — must not raise unhandled exceptions (per spec)
 # ---------------------------------------------------------------------------
