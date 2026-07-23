@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -130,22 +130,44 @@ class Reference:
     chapter: int
     verse: int | None = None
     end_verse: int | None = None
+    # Cross-chapter ranges (Stage 3, audit rows 13-14): when set, the range
+    # runs from (chapter, verse) through (end_chapter, end_verse) inclusive.
+    end_chapter: int | None = None
+    # Character offsets into the ORIGINAL input string of parse_references.
+    # `compare=False` keeps equality by (book, chapter, verse, end_verse,
+    # end_chapter) so two references to the same passage from different
+    # positions in a text still compare equal.
+    start: int | None = field(default=None, compare=False)
+    end: int | None = field(default=None, compare=False)
 
     def __str__(self) -> str:
         if self.verse is None:
             return f"{self.book} {self.chapter}"
+        if self.end_chapter is not None:
+            return (
+                f"{self.book} {self.chapter}:{self.verse}"
+                f"-{self.end_chapter}:{self.end_verse}"
+            )
         if self.end_verse is None:
             return f"{self.book} {self.chapter}:{self.verse}"
         return f"{self.book} {self.chapter}:{self.verse}-{self.end_verse}"
 
 
 def parse_references(text: str) -> list[Reference]:
-    """Extract all Scripture references from a block of free text."""
+    """Extract all Scripture references from a block of free text.
+
+    Returned references carry `start` and `end` character offsets into the
+    ORIGINAL `text`. The offsets round-trip: `text[ref.start:ref.end]`
+    reproduces the matched substring modulo `.` ↔ ` ` normalisation
+    (see `_normalize`).
+    """
     if not text:
         return []
     # Periods can appear as abbreviation markers ("Ps." "Rev.") or as
     # sentence terminators next to a reference ("...John 3:16."). Turning
     # them into spaces normalizes both cases without shifting semantics.
+    # Crucially, `.replace(".", " ")` preserves string length so the
+    # regex match offsets are valid indices into the original text.
     cleaned = text.replace(".", " ")
     results: list[Reference] = []
     for m in _REF_RE.finditer(cleaned):
@@ -159,7 +181,12 @@ def parse_references(text: str) -> list[Reference]:
         # Guard against nonsensical ranges like "13:7-4".
         if verse is not None and end is not None and end < verse:
             end = None
-        results.append(Reference(canonical, chapter, verse, end))
+        results.append(
+            Reference(
+                canonical, chapter, verse, end,
+                start=m.start(), end=m.end(),
+            )
+        )
     return results
 
 

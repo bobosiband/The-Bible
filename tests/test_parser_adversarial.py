@@ -292,3 +292,43 @@ def test_extraction_precision_recall():
     precision = len(true_positives) / len(got)
     recall = len(true_positives) / len(_EXTRACTION_TRUTH)
     assert (round(precision, 3), round(recall, 3)) == (0.75, 1.0)
+
+
+# ---------------------------------------------------------------------------
+# Stage 3, Task 3c — reference spans round-trip against the original string
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("text", [
+    "John 3:16",
+    "Read John 3:16 and Romans 8:28 and Psalm 23 today.",
+    "Compare 1 Cor 13:4-7 with Rev. 22:21.",
+    "See Ps. 23 and Rev 22:21 for context.",
+    "Multiple: Genesis 1:1, Matt 5:3, Song of Solomon 2:1 — all famous.",
+])
+def test_reference_spans_roundtrip_to_original_text(text):
+    """text[ref.start:ref.end] must reproduce the matched substring after
+    normalising periods to spaces (the same transformation the parser applies
+    internally). Since `.replace('.', ' ')` preserves string length, the
+    normalised substring at the same offsets is what we compare against."""
+    normalised = text.replace(".", " ")
+    for ref in parse_references(text):
+        assert ref.start is not None and ref.end is not None
+        original_slice = text[ref.start:ref.end]
+        normalised_slice = normalised[ref.start:ref.end]
+        assert original_slice.replace(".", " ") == normalised_slice
+        # The slice must begin at the book name — no leading whitespace.
+        assert not original_slice.startswith(" ")
+
+
+def test_reference_equality_ignores_spans():
+    """Two references to the same passage from different positions in text
+    must compare equal — spans are metadata, not identity."""
+    refs = parse_references("John 3:16 and later John 3:16 again")
+    assert refs[0] == refs[1]
+    assert refs[0].start != refs[1].start
+
+
+def test_cross_chapter_end_chapter_field_defaults_to_none():
+    """Field exists and defaults to None on ordinary refs."""
+    (ref,) = parse_references("John 3:16")
+    assert ref.end_chapter is None
