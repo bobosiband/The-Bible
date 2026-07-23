@@ -38,7 +38,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_QUESTIONS = REPO_ROOT / "data" / "eval" / "questions.jsonl"
 DEFAULT_RUNS_DIR = REPO_ROOT / "data" / "eval" / "runs"
 DEFAULT_DB = REPO_ROOT / "data" / "corpus" / "bible.db"
-DEFAULT_SYSTEM_PROMPT = REPO_ROOT / "prompts" / "system.txt"
+DEFAULT_SYSTEM_PROMPT = REPO_ROOT / "prompts" / "system.v1.txt"
 DEFAULT_MODEL = "qwen2.5:3b"
 DEFAULT_TIMEOUT_S = 120.0
 
