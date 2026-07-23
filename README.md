@@ -81,18 +81,43 @@ Output lands in `data/eval/runs/<UTC-timestamp>.jsonl`.
 
 ### `data/eval/questions.jsonl` schema
 
-One JSON object per line:
+One JSON object per line. The file **starts and stays empty until you
+personally write questions** — placeholders or auto-generated questions
+poison the baseline eval that they'd be measured against.
 
 ```
 {
-  "id":            "q001",           # required, unique
-  "question":      "…",              # required, the prompt sent to the model
-  "expected_refs": ["John 3:16"],    # optional, ground-truth verse citations
-  "notes":         ""                # optional, free text for you
+  "id":            "q001",             // required, unique per file
+  "question":      "…",                // required, the prompt sent to the model
+  "expected_refs": ["John 3:16"],      // PROVISIONAL — see note below
+  "notes":         ""                  // optional, free text
 }
 ```
 
-The file starts empty. You write the questions.
+> **`expected_refs` is provisional.** It's reserved for a
+> reference-based citation metric, but the decision on whether the
+> Shepherd eval is reference-based, text-based, or both has not been
+> made yet. Populate it only if it's useful to you; downstream tools
+> won't treat its absence as an error. See `docs/SCHEMAS.md` when it
+> exists.
+
+## Corpus tests and `--require-corpus`
+
+A slice of the test suite asserts things about the real ingested BSB
+corpus (verse counts, whole-text sweep for JSON leakage, book-name
+consistency between parser and DB). Those tests carry the `@pytest.mark.corpus`
+marker and skip when `data/corpus/bible.db` is absent.
+
+A green suite without the corpus proves nothing about corpus fidelity.
+To turn those skips into hard failures — recommended in CI or before
+any commit that touches the ingest or corpus code:
+
+```bash
+pytest --require-corpus         # or: SHEPHERD_REQUIRE_CORPUS=1 pytest
+```
+
+When you run pytest normally and any corpus test skips, the run prints
+a loud summary line so you know you're not getting the full audit.
 
 ## Tests
 
