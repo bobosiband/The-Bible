@@ -13,6 +13,8 @@ import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from src.corpus.normalize import canonical_reference_string
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_DB = REPO_ROOT / "data" / "corpus" / "bible.db"
 DEFAULT_TRANSLATION = "BSB"
@@ -189,16 +191,10 @@ class Reference:
     end: int | None = field(default=None, compare=False)
 
     def __str__(self) -> str:
-        if self.verse is None:
-            return f"{self.book} {self.chapter}"
-        if self.end_chapter is not None:
-            return (
-                f"{self.book} {self.chapter}:{self.verse}"
-                f"-{self.end_chapter}:{self.end_verse}"
-            )
-        if self.end_verse is None:
-            return f"{self.book} {self.chapter}:{self.verse}"
-        return f"{self.book} {self.chapter}:{self.verse}-{self.end_verse}"
+        return canonical_reference_string(
+            self.book, self.chapter, self.verse,
+            end_verse=self.end_verse, end_chapter=self.end_chapter,
+        )
 
 
 def parse_references(text: str, *, dedupe: bool = False) -> list[Reference]:
