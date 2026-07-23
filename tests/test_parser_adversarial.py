@@ -143,18 +143,50 @@ def test_psalm_forms_all_resolve_to_psalms_23(text):
 # 5. Cross-chapter ranges
 # ---------------------------------------------------------------------------
 
-def test_cross_chapter_range_genesis_currently_truncates():
-    """'Genesis 1:1-2:3' currently parses as chapter 1, verses 1-2 —
-    the ':3' after the second colon is dropped."""
-    assert parse_references("Genesis 1:1-2:3") == [
-        Reference("Genesis", 1, 1, 2)
-    ]
+def test_cross_chapter_range_genesis_now_captures_end_chapter():
+    """Stage 3 ruling on audit row 13: 'Genesis 1:1-2:3' becomes a proper
+    cross-chapter Reference — from chapter 1 verse 1 through chapter 2
+    verse 3 — with end_chapter=2 and end_verse=3."""
+    (ref,) = parse_references("Genesis 1:1-2:3")
+    assert ref.book == "Genesis"
+    assert ref.chapter == 1
+    assert ref.verse == 1
+    assert ref.end_chapter == 2
+    assert ref.end_verse == 3
 
 
-def test_cross_chapter_range_psalms_currently_truncates():
-    assert parse_references("Ps 22:1-23:6") == [
-        Reference("Psalms", 22, 1, 23)
-    ]
+def test_cross_chapter_range_psalms_now_captures_end_chapter():
+    """Stage 3 ruling on audit row 14."""
+    (ref,) = parse_references("Ps 22:1-23:6")
+    assert (ref.chapter, ref.verse, ref.end_chapter, ref.end_verse) == (
+        22, 1, 23, 6,
+    )
+
+
+def test_cross_chapter_reference_str_reproduces_input_shape():
+    (ref,) = parse_references("Genesis 1:1-2:3")
+    assert str(ref) == "Genesis 1:1-2:3"
+
+
+def test_within_chapter_range_still_leaves_end_chapter_none():
+    """Backwards compatibility: an ordinary within-chapter range keeps
+    end_chapter=None so equality with pre-Stage-3 code still works."""
+    (ref,) = parse_references("1 Cor 13:4-7")
+    assert ref.end_chapter is None
+    assert ref.end_verse == 7
+
+
+@pytest.mark.corpus
+def test_cross_chapter_get_range_returns_chapter_verse_text_tuples():
+    """When end_chapter is set, get_range returns (chapter, verse, text)
+    triples so callers can distinguish which chapter each verse came from."""
+    rows = get_range("Genesis", 1, 30, 2, end_chapter=2)
+    # Should include the tail of chapter 1 (verses 30, 31) and the head
+    # of chapter 2 (verses 1, 2).
+    chapters_seen = sorted({r[0] for r in rows})
+    assert chapters_seen == [1, 2]
+    # Row shape sanity: 3-tuple (chapter, verse, text).
+    assert all(len(r) == 3 for r in rows)
 
 
 # ---------------------------------------------------------------------------

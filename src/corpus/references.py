@@ -144,13 +144,19 @@ _book_alternation = "|".join(
 )
 
 # Reference syntax:
-#   Book Chapter                        e.g. "Ps 23"
-#   Book Chapter:Verse                  e.g. "John 3:16"
-#   Book Chapter:StartVerse-EndVerse    e.g. "1 Cor 13:4-7"
+#   Book Chapter                             e.g. "Ps 23"
+#   Book Chapter:Verse                       e.g. "John 3:16"
+#   Book Chapter:StartVerse-EndVerse         e.g. "1 Cor 13:4-7"
+#   Book Chapter:StartVerse-EndCh:EndVerse   e.g. "Genesis 1:1-2:3"
+# The `end2` group is only present for cross-chapter ranges; when it is
+# set the `end` group is the *chapter* half of the endpoint, and `end2`
+# is the verse.
 _REF_RE = re.compile(
     rf"\b(?P<book>{_book_alternation})"
     r"\s+(?P<chapter>\d{1,3})"
-    r"(?:\s*:\s*(?P<verse>\d{1,3})(?:\s*[-–]\s*(?P<end>\d{1,3}))?)?"
+    r"(?:\s*:\s*(?P<verse>\d{1,3})"
+    r"(?:\s*[-–]\s*(?P<end>\d{1,3})(?:\s*:\s*(?P<end2>\d{1,3}))?)?"
+    r")?"
     r"\b",
     re.IGNORECASE,
 )
@@ -218,17 +224,28 @@ def parse_references(text: str, *, dedupe: bool = False) -> list[Reference]:
             continue
         chapter = int(m.group("chapter"))
         verse = int(m.group("verse")) if m.group("verse") else None
-        end = int(m.group("end")) if m.group("end") else None
-        # Guard against nonsensical ranges like "13:7-4".
-        if verse is not None and end is not None and end < verse:
-            end = None
+        end1 = int(m.group("end")) if m.group("end") else None
+        end2 = int(m.group("end2")) if m.group("end2") else None
+        if end2 is not None:
+            # Cross-chapter range: "Book c1:v1-c2:v2" — end1 is c2, end2 is v2.
+            end_chapter, end_verse = end1, end2
+        else:
+            end_chapter, end_verse = None, end1
+        # Guard against nonsensical within-chapter ranges like "13:7-4".
+        # For cross-chapter, we accept c2>=c1 as valid; if c2<c1 it's odd
+        # but rare enough that we just leave both fields as-parsed rather
+        # than second-guess.
+        if (end_chapter is None and verse is not None
+                and end_verse is not None and end_verse < verse):
+            end_verse = None
         # Single-chapter books: "Jude 5" without a colon means Jude 1:5.
-        # When the writer wrote "Jude 1:5" explicitly we leave it alone.
+        # Only applies when the writer wrote no verse info at all.
         if (canonical in SINGLE_CHAPTER_BOOKS
-                and verse is None and end is None):
+                and verse is None and end_verse is None and end_chapter is None):
             chapter, verse = 1, chapter
         ref = Reference(
-            canonical, chapter, verse, end,
+            canonical, chapter, verse, end_verse,
+            end_chapter=end_chapter,
             start=m.start(), end=m.end(),
         )
         if dedupe:
@@ -316,11 +333,21 @@ def get_range(
     end: int | None = None,
     translation: str = DEFAULT_TRANSLATION,
     db_path: Path | str | None = None,
-) -> list[tuple[int, str]]:
-    """Return an inclusive range of verses as (verse_number, text) tuples.
+    end_chapter: int | None = None,
+) -> list[tuple[int, str]] | list[tuple[int, int, str]]:
+    """Return an inclusive range of verses.
 
-    - start=None returns the whole chapter.
-    - end=None means "just the single verse `start`".
+    Return shape:
+    - When `end_chapter` is None: `list[tuple[verse_number, text]]` (backward
+      compatible with pre-Stage-3 callers).
+    - When `end_chapter` is set: `list[tuple[chapter, verse_number, text]]`
+      so callers can distinguish which chapter each verse came from.
+
+    - start=None returns the whole chapter (only valid when end_chapter is
+      also None).
+    - end=None means "just the single verse `start`" for within-chapter,
+      or "through end_chapter:last_verse" for cross-chapter — callers pass
+      an explicit end verse for the latter case.
     - Nonexistent refs return an empty list rather than raising.
     - A missing DB raises CorpusUnavailableError (see class docstring).
     """
@@ -329,6 +356,20 @@ def get_range(
         return []
     conn = _connect(db_path)
     try:
+        if end_chapter is not None:
+            # Cross-chapter: fetch every verse from (chapter, start) through
+            # (end_chapter, end). We use a single query with a lexicographic
+            # inequality on (chapter, verse) to keep it simple and ordered.
+            if start is None or end is None:
+                return []
+            rows = conn.execute(
+                "SELECT chapter, verse, text FROM verses "
+                "WHERE translation = ? AND book = ? "
+                "AND (chapter, verse) BETWEEN (?, ?) AND (?, ?) "
+                "ORDER BY chapter, verse",
+                (translation, canonical, chapter, start, end_chapter, end),
+            ).fetchall()
+            return [(r["chapter"], r["verse"], r["text"]) for r in rows]
         if start is None:
             rows = conn.execute(
                 "SELECT verse, text FROM verses "
