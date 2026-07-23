@@ -57,5 +57,20 @@ def fixture_db(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def empty_db_path(tmp_path: Path) -> Path:
-    """A path where no DB file exists — used to verify graceful degradation."""
+    """A path where no DB file exists.
+
+    Contract change (Stage 3, Task 2c): calls into get_verse/get_range with
+    this path MUST raise CorpusUnavailableError. Silent degradation was
+    the whole failure mode this fixture is now designed to prove is gone.
+    """
     return tmp_path / "does_not_exist.db"
+
+
+@pytest.fixture
+def broken_db_path(tmp_path: Path) -> Path:
+    """A SQLite file that exists but has no `verses` table — should also
+    raise CorpusUnavailableError, for the same reason as empty_db_path."""
+    p = tmp_path / "no_verses.db"
+    with sqlite3.connect(p) as conn:
+        conn.execute("CREATE TABLE unrelated (x INTEGER)")
+    return p

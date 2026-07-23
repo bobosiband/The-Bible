@@ -4,6 +4,7 @@ from __future__ import annotations
 import pytest
 
 from src.corpus.references import (
+    CorpusUnavailableError,
     Reference,
     get_range,
     get_verse,
@@ -186,8 +187,15 @@ def test_get_verse_returns_none_for_unknown_book(fixture_db):
     assert get_verse("Hezekiah", 1, 1, db_path=fixture_db) is None
 
 
-def test_get_verse_returns_none_when_db_missing(empty_db_path):
-    assert get_verse("John", 3, 16, db_path=empty_db_path) is None
+def test_get_verse_raises_when_db_missing(empty_db_path):
+    """Stage 3 contract: a missing DB is a setup problem, not a lookup miss."""
+    with pytest.raises(CorpusUnavailableError):
+        get_verse("John", 3, 16, db_path=empty_db_path)
+
+
+def test_get_verse_raises_when_verses_table_missing(broken_db_path):
+    with pytest.raises(CorpusUnavailableError):
+        get_verse("John", 3, 16, db_path=broken_db_path)
 
 
 # ---------------------------------------------------------------------------
@@ -223,5 +231,12 @@ def test_get_range_for_missing_chapter_returns_empty(fixture_db):
     assert get_range("John", 99, db_path=fixture_db) == []
 
 
-def test_get_range_returns_empty_when_db_missing(empty_db_path):
-    assert get_range("John", 3, 16, db_path=empty_db_path) == []
+def test_get_range_raises_when_db_missing(empty_db_path):
+    """Stage 3 contract: a missing DB is a setup problem, not a lookup miss."""
+    with pytest.raises(CorpusUnavailableError):
+        get_range("John", 3, 16, db_path=empty_db_path)
+
+
+def test_get_range_raises_when_verses_table_missing(broken_db_path):
+    with pytest.raises(CorpusUnavailableError):
+        get_range("John", 3, 16, db_path=broken_db_path)

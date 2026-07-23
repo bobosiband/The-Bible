@@ -168,15 +168,41 @@ def normalize_book(name: str) -> str | None:
     return _LOOKUP.get(_normalize(name))
 
 
-def _connect(db_path: Path | str | None) -> sqlite3.Connection | None:
-    """Open the corpus DB. Returns None if the file doesn't exist yet —
-    callers treat that as 'no data' rather than raising, so tests and
-    dry-runs don't have to guard the call site."""
+class CorpusUnavailableError(RuntimeError):
+    """The corpus DB is missing or unusable — distinct from 'verse not found'.
+
+    A citation checker asking about John 3:16 on a machine with no ingested
+    corpus needs to know 'I can't tell' (raise this) rather than 'not
+    present' (return None), because those two outcomes drive completely
+    different behaviour: one is a setup error, the other is a real finding.
+    """
+
+
+def _connect(db_path: Path | str | None) -> sqlite3.Connection:
+    """Open the corpus DB. Raises CorpusUnavailableError if the file is
+    absent or has no `verses` table. Callers deliberately do NOT catch
+    this — the whole point of raising is to prevent a missing DB from
+    masquerading as a legitimate 'verse not found' result."""
     path = Path(db_path) if db_path is not None else DEFAULT_DB
     if not path.exists():
-        return None
+        raise CorpusUnavailableError(
+            f"corpus DB not found at {path}. "
+            f"Run `python -m src.ingest.bsb` to build it."
+        )
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
+    try:
+        has_verses = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='verses'"
+        ).fetchone()
+    except sqlite3.DatabaseError as e:
+        conn.close()
+        raise CorpusUnavailableError(f"{path} is not a readable SQLite DB: {e}")
+    if not has_verses:
+        conn.close()
+        raise CorpusUnavailableError(
+            f"{path} exists but has no `verses` table. Re-run the ingest."
+        )
     return conn
 
 
@@ -187,13 +213,15 @@ def get_verse(
     translation: str = DEFAULT_TRANSLATION,
     db_path: Path | str | None = None,
 ) -> str | None:
-    """Return a single verse's text, or None if not present."""
+    """Return a single verse's text, or None if not present.
+
+    Raises CorpusUnavailableError if the DB is missing — that state is
+    deliberately not conflated with a failed lookup.
+    """
     canonical = normalize_book(book)
     if canonical is None:
         return None
     conn = _connect(db_path)
-    if conn is None:
-        return None
     try:
         row = conn.execute(
             "SELECT text FROM verses "
@@ -218,13 +246,12 @@ def get_range(
     - start=None returns the whole chapter.
     - end=None means "just the single verse `start`".
     - Nonexistent refs return an empty list rather than raising.
+    - A missing DB raises CorpusUnavailableError (see class docstring).
     """
     canonical = normalize_book(book)
     if canonical is None:
         return []
     conn = _connect(db_path)
-    if conn is None:
-        return []
     try:
         if start is None:
             rows = conn.execute(
