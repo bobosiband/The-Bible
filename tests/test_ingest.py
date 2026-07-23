@@ -14,9 +14,11 @@ import pytest
 from src.ingest.bsb import (
     CorpusIntegrityError,
     LoaderChangedError,
+    UpstreamHashMismatchError,
     load_from_raw,
     sha256_file,
     verify_counts,
+    verify_download_hash,
 )
 from src.ingest import bsb as ingest_module
 
@@ -222,3 +224,36 @@ def test_force_reload_restores_text_after_loader_change(tmp_path, monkeypatch):
     with _open(db_path) as conn:
         meta = conn.execute("SELECT loader_version FROM corpus_meta").fetchone()
     assert meta["loader_version"] == "new-loader-hash-" + "0" * 48
+
+
+# ---------------------------------------------------------------------------
+# Task 2e — download hash enforcement
+# ---------------------------------------------------------------------------
+
+def test_verify_download_hash_accepts_expected_bytes(tmp_path):
+    import hashlib
+    payload = b"exactly this content"
+    p = tmp_path / "file.bin"
+    p.write_bytes(payload)
+    expected = hashlib.sha256(payload).hexdigest()
+    assert verify_download_hash(p, expected=expected) == expected
+
+
+def test_verify_download_hash_refuses_mismatch(tmp_path):
+    p = tmp_path / "file.bin"
+    p.write_bytes(b"unexpected content")
+    with pytest.raises(UpstreamHashMismatchError) as exc:
+        verify_download_hash(p, expected="0" * 64)
+    msg = str(exc.value)
+    assert "expected: " in msg and "actual: " in msg
+    assert "--allow-hash-change" in msg
+
+
+def test_verify_download_hash_allow_change_bypasses(tmp_path, capsys):
+    p = tmp_path / "file.bin"
+    p.write_bytes(b"unexpected content")
+    returned = verify_download_hash(p, expected="0" * 64, allow_change=True)
+    # Returns the actual hash so the caller can proceed with it.
+    assert returned != "0" * 64
+    err = capsys.readouterr().err
+    assert "[warn]" in err and "--allow-hash-change" in err

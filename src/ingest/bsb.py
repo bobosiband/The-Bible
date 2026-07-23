@@ -35,6 +35,13 @@ EXPECTED_BOOKS = 66
 EXPECTED_CHAPTERS = 1189
 EXPECTED_VERSES = 31086
 
+# Pinned SHA256 of the bytes we expect back from BSB_URL. Locked to the
+# copy documented in data/corpus/SOURCES.md. If the upstream file changes,
+# THIS constant must be updated by hand — never auto-updated by the loader
+# — because "the upstream file silently changed" is exactly the failure
+# mode a trust-on-first-use scheme would mask.
+EXPECTED_SHA256 = "5cb6ce27311dda29cb94c10bb968e6185a21f563fb273b2d0e23b833c84f2711"
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CORPUS_DIR = REPO_ROOT / "data" / "corpus"
 RAW_PATH = CORPUS_DIR / "bsb_complete.json"
@@ -52,6 +59,17 @@ class LoaderChangedError(RuntimeError):
     This is the guard against the Stage 2 failure mode: a loader fix (e.g.
     the closing-quote spacing patch) that would silently leave old, wrong
     text in the DB because the row count still matches expected.
+    """
+
+
+class UpstreamHashMismatchError(RuntimeError):
+    """Raised when the downloaded (or cached) raw file's SHA256 does not
+    match EXPECTED_SHA256, and --allow-hash-change was not supplied.
+
+    Fetching a file from a URL and trusting whatever bytes come back is
+    trust-on-first-use. This class exists to make that unacceptable:
+    the loader knows exactly which corpus version this repo was built
+    against, and refuses to silently substitute a different one.
     """
 
 
@@ -73,6 +91,42 @@ def download(url: str, dest: Path) -> None:
     r.raise_for_status()
     dest.write_bytes(r.content)
     print(f"[save] {dest} ({dest.stat().st_size // 1024} KiB)")
+
+
+def verify_download_hash(
+    path: Path,
+    expected: str = EXPECTED_SHA256,
+    allow_change: bool = False,
+) -> str:
+    """Compute and check the on-disk file's SHA256 against the pinned value.
+
+    Raises UpstreamHashMismatchError on a mismatch unless `allow_change`
+    is True, in which case a warning is printed and the actual hash is
+    returned. SOURCES.md is deliberately NOT auto-updated — accepting a
+    new upstream version is a human decision.
+    """
+    actual = sha256_file(path)
+    if actual == expected:
+        return actual
+    if allow_change:
+        print(
+            f"[warn] --allow-hash-change: {path.name} sha256 does not match "
+            f"EXPECTED_SHA256\n"
+            f"       expected: {expected}\n"
+            f"       actual:   {actual}\n"
+            f"       Update EXPECTED_SHA256 and SOURCES.md by hand if this "
+            f"new upstream is intentional.",
+            file=sys.stderr,
+        )
+        return actual
+    raise UpstreamHashMismatchError(
+        f"{path} sha256 does not match the pinned EXPECTED_SHA256.\n"
+        f"  expected: {expected}\n"
+        f"  actual:   {actual}\n"
+        f"Upstream may have changed. If this is intentional, re-run with "
+        f"--allow-hash-change, then update EXPECTED_SHA256 in src/ingest/bsb.py "
+        f"and the hash in data/corpus/SOURCES.md."
+    )
 
 
 def sha256_file(path: Path) -> str:
@@ -346,11 +400,24 @@ def main(argv: list[str] | None = None) -> int:
         help="Wipe existing rows and re-extract from the raw file. Required "
              "after a loader change; otherwise refused if a mismatch is detected.",
     )
+    p.add_argument(
+        "--allow-hash-change", action="store_true",
+        help="Accept a downloaded raw file whose SHA256 differs from the "
+             "pinned EXPECTED_SHA256. Prints a warning; does NOT auto-update "
+             "EXPECTED_SHA256 or SOURCES.md — you do that by hand.",
+    )
     args = p.parse_args(argv)
 
     download(BSB_URL, RAW_PATH)
+    try:
+        sha_local = verify_download_hash(
+            RAW_PATH, allow_change=args.allow_hash_change,
+        )
+    except UpstreamHashMismatchError as e:
+        print(f"[refuse] {e}", file=sys.stderr)
+        return 3
+
     raw = json.loads(RAW_PATH.read_text())
-    sha_local = sha256_file(RAW_PATH)
     retrieved_at = (
         dt.datetime.fromtimestamp(RAW_PATH.stat().st_mtime, tz=dt.timezone.utc)
         .isoformat(timespec="seconds")
