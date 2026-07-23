@@ -18,6 +18,7 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import json
+import re
 import sqlite3
 from pathlib import Path
 
@@ -65,20 +66,37 @@ def sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
+# Characters that must not be preceded by whitespace when they appear at
+# the start of a following segment: sentence terminators, closing brackets,
+# and closing curly quotes. Straight quotes are ambiguous (open vs close)
+# so are NOT included — the BSB uses curly quotes consistently.
+_ATTACHING_PUNCT = re.compile(r"\s+(?=[,.;:?!)\]}”’])")
+
+
 def _verse_text(content: list) -> str:
     """Flatten a verse's `content` array into plain text.
 
     The BSB JSON mixes plain strings with objects that carry inline notation
-    (footnote markers, line breaks, section headings). We keep the strings
-    and pull `text` out of any object that has it; everything else is dropped.
+    (`{noteId}`, `{lineBreak}`, section headings). We keep the strings and
+    pull `text` out of any object that has it; everything else is dropped.
+
+    Segments are joined with a single space, but when the next segment
+    starts with attaching punctuation — most commonly a closing curly quote
+    that lives in its own segment because a footnote sat between it and its
+    sentence — that space is collapsed back out so the quote attaches to
+    the sentence, e.g. "born again.”" not "born again. ”".
     """
     parts: list[str] = []
     for item in content:
         if isinstance(item, str):
-            parts.append(item)
+            s = item.strip()
         elif isinstance(item, dict) and isinstance(item.get("text"), str):
-            parts.append(item["text"])
-    return " ".join(p.strip() for p in parts if p.strip())
+            s = item["text"].strip()
+        else:
+            continue
+        if s:
+            parts.append(s)
+    return _ATTACHING_PUNCT.sub("", " ".join(parts))
 
 
 def iter_verses(raw: dict):
