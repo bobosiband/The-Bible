@@ -272,14 +272,21 @@ def run_check(
     classifier: Callable[
         [Reference, str, Callable[[Reference], list[tuple[int, int, str]]]],
         CitationResult,
-    ] = classify_citation,
+    ] | None = None,
     corpus_lookup: Callable[[Reference], list[tuple[int, int, str]]] | None = None,
     db_path: Path = DEFAULT_DB,
 ) -> RunReport:
     """Iterate every reference in `run_path` and classify it. Returns a
     RunReport. Raises `RunFileError` on structural problems and
     `CorpusUnavailableError` if the corpus is missing when a lookup is
-    attempted."""
+    attempted.
+
+    The `classifier` default resolves to `classify_citation` at *call*
+    time so tests can monkeypatch the module attribute and see their
+    replacement used here.
+    """
+    if classifier is None:
+        classifier = classify_citation
     meta, answers = load_run_file(run_path)
     if corpus_lookup is None:
         corpus_lookup = make_corpus_lookup(db_path=db_path)
