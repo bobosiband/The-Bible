@@ -59,16 +59,39 @@ def canonical_reference_string(
 ) -> str:
     """One canonical printed form for a reference tuple.
 
+    Valid shapes:
     - Book Chapter                     e.g. "Psalms 23"
     - Book Chapter:Verse               e.g. "John 3:16"
     - Book Chapter:Verse-EndVerse      e.g. "1 Corinthians 13:4-7"
     - Book Ch:V-EndCh:EndVerse         e.g. "Genesis 1:1-2:3"
 
+    Nonsense combinations raise ValueError. Reference is a frozen
+    dataclass with all-optional trailing fields; it's easy to construct
+    an inconsistent state (e.g. end_chapter set but end_verse missing,
+    or end_verse set without a base verse). Failing loudly at the
+    render path is the right place to catch that — silent normalisation
+    hides the caller's bug and no valid Reference constructed by the
+    parser can hit this branch.
+
     `Reference.__str__` calls through here so any downstream string
     comparison uses the same rendering.
     """
+    # verse=None means "whole chapter". In that mode neither end_verse
+    # nor end_chapter can meaningfully be set.
     if verse is None:
+        if end_verse is not None or end_chapter is not None:
+            raise ValueError(
+                f"invalid reference: verse=None with "
+                f"end_verse={end_verse!r}, end_chapter={end_chapter!r}"
+            )
         return f"{book} {chapter}"
+    # verse is set. end_chapter without end_verse is nonsense — a
+    # cross-chapter range needs both endpoints.
+    if end_chapter is not None and end_verse is None:
+        raise ValueError(
+            f"invalid reference: end_chapter={end_chapter!r} set but "
+            f"end_verse is None"
+        )
     if end_chapter is not None:
         return f"{book} {chapter}:{verse}-{end_chapter}:{end_verse}"
     if end_verse is None:
