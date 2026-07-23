@@ -332,3 +332,28 @@ def test_cross_chapter_end_chapter_field_defaults_to_none():
     """Field exists and defaults to None on ordinary refs."""
     (ref,) = parse_references("John 3:16")
     assert ref.end_chapter is None
+
+
+# ---------------------------------------------------------------------------
+# Stage 3, Task 3b — dedupe parameter
+# ---------------------------------------------------------------------------
+
+def test_parse_references_returns_duplicates_by_default():
+    refs = parse_references("John 3:16 and John 3:16 again")
+    assert len(refs) == 2
+    assert refs[0] == refs[1]
+
+
+def test_parse_references_dedupe_true_keeps_first_occurrence_only():
+    refs = parse_references("John 3:16 and John 3:16 again", dedupe=True)
+    assert len(refs) == 1
+    # First-occurrence position — the span still points at the first match.
+    assert refs[0].start == 0
+
+
+def test_dedupe_preserves_original_order():
+    refs = parse_references(
+        "Ps 23, then John 3:16, then Ps 23 again, then Rom 8:28.",
+        dedupe=True,
+    )
+    assert [str(r) for r in refs] == ["Psalms 23", "John 3:16", "Romans 8:28"]

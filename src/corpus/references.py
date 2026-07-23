@@ -153,13 +153,19 @@ class Reference:
         return f"{self.book} {self.chapter}:{self.verse}-{self.end_verse}"
 
 
-def parse_references(text: str) -> list[Reference]:
+def parse_references(text: str, *, dedupe: bool = False) -> list[Reference]:
     """Extract all Scripture references from a block of free text.
 
     Returned references carry `start` and `end` character offsets into the
     ORIGINAL `text`. The offsets round-trip: `text[ref.start:ref.end]`
     reproduces the matched substring modulo `.` ↔ ` ` normalisation
     (see `_normalize`).
+
+    `dedupe=True` drops later occurrences of the same reference (equality
+    ignores spans, so "John 3:16 ... John 3:16" collapses to one entry),
+    preserving first-occurrence order. Citation counting needs both
+    behaviours: raw for "how many citations did the model make", deduped
+    for "how many distinct passages did the model rely on".
     """
     if not text:
         return []
@@ -170,6 +176,7 @@ def parse_references(text: str) -> list[Reference]:
     # regex match offsets are valid indices into the original text.
     cleaned = text.replace(".", " ")
     results: list[Reference] = []
+    seen: set[Reference] = set()
     for m in _REF_RE.finditer(cleaned):
         book_key = _normalize(m.group("book"))
         canonical = _LOOKUP.get(book_key)
@@ -181,12 +188,15 @@ def parse_references(text: str) -> list[Reference]:
         # Guard against nonsensical ranges like "13:7-4".
         if verse is not None and end is not None and end < verse:
             end = None
-        results.append(
-            Reference(
-                canonical, chapter, verse, end,
-                start=m.start(), end=m.end(),
-            )
+        ref = Reference(
+            canonical, chapter, verse, end,
+            start=m.start(), end=m.end(),
         )
+        if dedupe:
+            if ref in seen:
+                continue
+            seen.add(ref)
+        results.append(ref)
     return results
 
 
