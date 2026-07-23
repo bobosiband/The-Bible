@@ -75,10 +75,11 @@ def test_roman_ii_tim_currently_not_recognised():
     assert parse_references("II Tim 3:16") == []
 
 
-def test_roman_iii_john_currently_matches_john_and_drops_iii():
-    """Documents the misparse: 'III John 2' currently returns [John 2],
-    treating the leading III as noise and matching the bare 'John'."""
-    assert parse_references("III John 2") == [Reference("John", 2)]
+def test_roman_iii_john_routes_to_3_john():
+    """Stage 3 ruling on audit row 8: 'III John 2' must resolve to
+    3 John, not to John. Producing a confidently wrong book is worse
+    than producing nothing."""
+    assert parse_references("III John 2") == [Reference("3 John", 2)]
 
 
 @pytest.mark.parametrize("text", ["1 Cor", "1Cor", "1 Jn", "1John"])

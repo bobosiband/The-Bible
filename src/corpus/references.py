@@ -86,7 +86,8 @@ BOOKS: dict[str, list[str]] = {
     "2 Peter":         ["2 Peter", "2Peter", "2 Pet", "2Pet", "2 Pt", "2Pt", "2 Pe", "2Pe"],
     "1 John":          ["1 John", "1John", "1 Jn", "1Jn", "1 Jhn", "1Jhn"],
     "2 John":          ["2 John", "2John", "2 Jn", "2Jn", "2 Jhn", "2Jhn"],
-    "3 John":          ["3 John", "3John", "3 Jn", "3Jn", "3 Jhn", "3Jhn"],
+    "3 John":          ["3 John", "3John", "3 Jn", "3Jn", "3 Jhn", "3Jhn",
+                         "III John", "IIIJohn", "III Jn", "IIIJn"],
     "Jude":            ["Jude", "Jud"],
     "Revelation":      ["Revelation", "Revelations", "Rev", "Rv", "Apoc"],
 }
