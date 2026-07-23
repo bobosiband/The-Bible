@@ -36,15 +36,26 @@ def _strs(refs) -> list[str]:
 # usage "Jude 5" means Jude verse 5 (i.e. chapter 1, verse 5). The parser
 # currently treats the number as a chapter.
 
-@pytest.mark.parametrize("text, current", [
-    ("Jude 5",      Reference("Jude", 5)),
-    ("Obadiah 3",   Reference("Obadiah", 3)),
-    ("Philemon 6",  Reference("Philemon", 6)),
-    ("2 John 4",    Reference("2 John", 4)),
-    ("3 John 2",    Reference("3 John", 2)),
+@pytest.mark.parametrize("text, expected", [
+    ("Jude 5",      Reference("Jude", 1, 5)),
+    ("Obadiah 3",   Reference("Obadiah", 1, 3)),
+    ("Philemon 6",  Reference("Philemon", 1, 6)),
+    ("2 John 4",    Reference("2 John", 1, 4)),
+    ("3 John 2",    Reference("3 John", 1, 2)),
 ])
-def test_single_chapter_book_currently_treats_number_as_chapter(text, current):
-    assert parse_references(text) == [current]
+def test_single_chapter_book_treats_bare_number_as_verse(text, expected):
+    """Stage 3 ruling on audit rows 1-5: for Jude, Obadiah, Philemon,
+    2 John and 3 John a bare 'Book N' means Book 1:N — those five have
+    only one chapter, so N cannot be a chapter."""
+    assert parse_references(text) == [expected]
+
+
+def test_single_chapter_books_with_explicit_colon_are_unchanged():
+    """A user writing 'Jude 1:5' explicitly must still get chapter 1
+    verse 5. The single-chapter rewrite only kicks in when there is no
+    colon (no verse) in the input."""
+    assert parse_references("Jude 1:5") == [Reference("Jude", 1, 5)]
+    assert parse_references("3 John 1:2") == [Reference("3 John", 1, 2)]
 
 
 # ---------------------------------------------------------------------------
@@ -107,9 +118,9 @@ def test_roman_prefixes_across_all_numbered_books(text, canonical):
 
 def test_roman_iii_john_routes_to_3_john():
     """Stage 3 ruling on audit row 8: 'III John 2' must resolve to
-    3 John, not to John. Producing a confidently wrong book is worse
-    than producing nothing."""
-    assert parse_references("III John 2") == [Reference("3 John", 2)]
+    3 John, not to John. With rows 1-5 also applied, the bare '2' is
+    interpreted as verse 2 of chapter 1 (single-chapter book)."""
+    assert parse_references("III John 2") == [Reference("3 John", 1, 2)]
 
 
 @pytest.mark.parametrize("text", ["1 Cor", "1Cor", "1 Jn", "1John"])
@@ -245,16 +256,14 @@ def test_out_of_range_still_parses(text):
 
 
 @pytest.mark.corpus
-def test_single_chapter_book_lookup_currently_impossible():
-    """A follow-on from the highest-value case: because the parser reads
-    'Jude 26' as chapter 26 rather than verse 26 of chapter 1, get_range
-    returns [] instead of surfacing a possible verse. Jude only has 25
-    verses so v26 doesn't exist either way, but the point stands: the
-    parser routes the request to the wrong lookup shape."""
+def test_single_chapter_book_out_of_range_verse_parses_but_lookup_fails():
+    """After Stage 3 rows 1-5, 'Jude 26' parses as Jude 1:26 — chapter 1
+    verse 26. Jude has 25 verses, so the *lookup* returns None. That's
+    the correct routing: parse cleanly, then fail at the DB layer with
+    the specific 'verse not found' signal (not a chapter-26 miss)."""
     (ref,) = parse_references("Jude 26")
-    assert (ref.chapter, ref.verse) == (26, None)
-    # As chapter 26: empty. As verse 26: not tested by parser output.
-    assert get_range("Jude", 26) == []
+    assert (ref.chapter, ref.verse) == (1, 26)
+    assert get_verse("Jude", 1, 26) is None
 
 
 # ---------------------------------------------------------------------------

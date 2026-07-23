@@ -122,6 +122,13 @@ def _normalize(s: str) -> str:
     return " ".join(s.replace(".", " ").lower().split())
 
 
+# Books with exactly one chapter. For these, "Jude 5" in common usage
+# means Jude verse 5 (i.e. chapter 1 verse 5), not chapter 5. See
+# PARSER_AUDIT.md rows 1-5 for the ruling.
+SINGLE_CHAPTER_BOOKS = frozenset({
+    "Jude", "Obadiah", "Philemon", "2 John", "3 John",
+})
+
 # Reverse map: every accepted form (normalized) → canonical name.
 _LOOKUP: dict[str, str] = {}
 for canonical, forms in BOOKS.items():
@@ -215,6 +222,11 @@ def parse_references(text: str, *, dedupe: bool = False) -> list[Reference]:
         # Guard against nonsensical ranges like "13:7-4".
         if verse is not None and end is not None and end < verse:
             end = None
+        # Single-chapter books: "Jude 5" without a colon means Jude 1:5.
+        # When the writer wrote "Jude 1:5" explicitly we leave it alone.
+        if (canonical in SINGLE_CHAPTER_BOOKS
+                and verse is None and end is None):
+            chapter, verse = 1, chapter
         ref = Reference(
             canonical, chapter, verse, end,
             start=m.start(), end=m.end(),
