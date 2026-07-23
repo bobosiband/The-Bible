@@ -247,12 +247,13 @@ def test_none_input_returns_empty_without_raising():
     assert parse_references(None) == []
 
 
-def test_integer_input_currently_raises_attributeerror():
-    """DOCUMENTED FAILURE: passing an int reaches `.replace('.', ' ')` on
-    a non-string and raises AttributeError. The spec says 'None of these
-    may raise an unhandled exception' — this one does. Open decision."""
-    with pytest.raises(AttributeError):
-        parse_references(12345)
+def test_non_str_input_returns_empty_list():
+    """Stage 3 ruling on audit row 21: any non-str input yields [] rather
+    than raising. Never surface an internal type error to the caller."""
+    assert parse_references(12345) == []
+    assert parse_references(3.14) == []
+    assert parse_references({"John": 3}) == []
+    assert parse_references(object()) == []
 
 
 # ---------------------------------------------------------------------------

@@ -167,7 +167,9 @@ def parse_references(text: str, *, dedupe: bool = False) -> list[Reference]:
     behaviours: raw for "how many citations did the model make", deduped
     for "how many distinct passages did the model rely on".
     """
-    if not text:
+    # Never raise on a non-string input; a citation checker sweeping a
+    # variety of upstream fields shouldn't have to guard every call.
+    if not isinstance(text, str) or not text:
         return []
     # Periods can appear as abbreviation markers ("Ps." "Rev.") or as
     # sentence terminators next to a reference ("...John 3:16."). Turning
