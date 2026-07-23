@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+.env
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Shepherd data (regenerable / private)
+data/corpus/*.db
+data/corpus/*.json
+data/corpus/*.raw
+data/eval/runs/
+
+# ai
+.claude/
