@@ -312,6 +312,90 @@ def normalize_book(name: str) -> str | None:
     return _LOOKUP.get(_normalize(name))
 
 
+class ReferenceParseError(ValueError):
+    """Raised by `parse_reference` on any input that is not exactly one
+    complete reference. Distinct from bare ValueError so callers can
+    catch it precisely without swallowing unrelated errors."""
+
+
+def parse_reference(s: str) -> Reference:
+    """Parse exactly one reference string.
+
+    Contract, distinct from `parse_references`:
+    - Accepts exactly one reference. Leading and trailing whitespace is
+      tolerated; ANY other surrounding text is an error.
+    - Does NOT extract from prose. `parse_references` is the extractor;
+      this is the round-trip inverse of `Reference.__str__` used by the
+      citation checker to compare expected_refs against refs_in_answer.
+    - Does NOT validate against the corpus. "Hezekiah 3:16" is a parse
+      error because Hezekiah isn't a book; "Genesis 51:1" parses fine
+      and fails at lookup. That separation is what lets a citation
+      checker distinguish a malformed citation from a fabricated one.
+
+    Raises `ReferenceParseError` on:
+    - non-string input
+    - empty input (after stripping whitespace)
+    - no reference in the input (unknown book, or nothing matched)
+    - the input contains more than one reference
+    - the input has trailing characters after the reference
+    """
+    if not isinstance(s, str):
+        raise ReferenceParseError(
+            f"expected str, got {type(s).__name__}"
+        )
+    stripped = s.strip()
+    if not stripped:
+        raise ReferenceParseError("empty input")
+    cleaned = stripped.replace(".", " ")
+    # fullmatch enforces "the whole (normalised) string is one reference".
+    m = _REF_RE.fullmatch(cleaned)
+    if m is None:
+        # Diagnose whether the problem is no match, multiple matches, or
+        # trailing content — the error message helps callers understand
+        # which of their inputs was bad.
+        matches = list(_REF_RE.finditer(cleaned))
+        if not matches:
+            raise ReferenceParseError(f"no reference in {s!r}")
+        if len(matches) > 1:
+            raise ReferenceParseError(
+                f"more than one reference in {s!r}: found "
+                f"{[cleaned[mm.start():mm.end()] for mm in matches]}"
+            )
+        # Exactly one match but not full → trailing (or leading) chars.
+        raise ReferenceParseError(
+            f"unexpected extra content in {s!r} around the reference"
+        )
+    book_key = _normalize(m.group("book"))
+    canonical = _LOOKUP.get(book_key)
+    if canonical is None:
+        # `_REF_RE` restricts the book group to known forms, so this
+        # branch is defensive rather than expected.
+        raise ReferenceParseError(f"unknown book in {s!r}")
+
+    chapter = int(m.group("chapter"))
+    had_explicit_verse = m.group("verse") is not None
+    verse = int(m.group("verse")) if had_explicit_verse else None
+    end1 = int(m.group("end")) if m.group("end") else None
+    end2 = int(m.group("end2")) if m.group("end2") else None
+    if end2 is not None:
+        end_chapter, end_verse = end1, end2
+    else:
+        end_chapter, end_verse = None, end1
+    if (end_chapter is None and verse is not None
+            and end_verse is not None and end_verse < verse):
+        end_verse = None
+    # Same single-chapter-book rewrite `parse_references` applies, so
+    # parse_reference(str(Reference("Jude", 1, 5))) round-trips.
+    if (canonical in SINGLE_CHAPTER_BOOKS
+            and verse is None and end_verse is None and end_chapter is None):
+        chapter, verse = 1, chapter
+    return Reference(
+        canonical, chapter, verse, end_verse,
+        end_chapter=end_chapter,
+        start=m.start(), end=m.end(),
+    )
+
+
 class CorpusUnavailableError(RuntimeError):
     """The corpus DB is missing or unusable — distinct from 'verse not found'.
 
