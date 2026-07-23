@@ -141,23 +141,17 @@ def test_headings_and_hebrew_subtitles_are_not_treated_as_verses():
 # Whole-corpus sweep against the real bible.db
 # ---------------------------------------------------------------------------
 
-corpus_only = pytest.mark.skipif(
-    not DB_PATH.exists(),
-    reason="requires data/corpus/bible.db (run: python -m src.ingest.bsb)",
-)
-
-
 @pytest.fixture(scope="module")
 def corpus_conn():
-    if not DB_PATH.exists():
-        pytest.skip("bible.db not present")
+    # Presence is enforced by the `corpus` marker via conftest.py; if the
+    # DB was missing, the test would have been skipped before we got here.
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     yield conn
     conn.close()
 
 
-@corpus_only
+@pytest.mark.corpus
 def test_corpus_has_expected_totals(corpus_conn):
     row = corpus_conn.execute(
         "SELECT book_count, chapter_count, verse_count "
@@ -169,7 +163,7 @@ def test_corpus_has_expected_totals(corpus_conn):
     )
 
 
-@corpus_only
+@pytest.mark.corpus
 def test_no_verse_is_empty_or_whitespace_only(corpus_conn):
     offenders = corpus_conn.execute(
         "SELECT book, chapter, verse FROM verses "
@@ -178,7 +172,7 @@ def test_no_verse_is_empty_or_whitespace_only(corpus_conn):
     assert offenders == [], f"{len(offenders)} empty verses: {offenders[:5]}"
 
 
-@corpus_only
+@pytest.mark.corpus
 @pytest.mark.parametrize("needle", [
     "[object",     # naive JSON.stringify of an object
     "noteId",      # footnote-marker dict serialized as text
@@ -196,7 +190,7 @@ def test_no_stringified_json_leaked_into_text(corpus_conn, needle):
     )
 
 
-@corpus_only
+@pytest.mark.corpus
 def test_no_verse_starts_or_ends_with_whitespace(corpus_conn):
     offenders = corpus_conn.execute(
         "SELECT book, chapter, verse FROM verses "
@@ -205,7 +199,7 @@ def test_no_verse_starts_or_ends_with_whitespace(corpus_conn):
     assert offenders == [], f"{len(offenders)} verses with edge whitespace"
 
 
-@corpus_only
+@pytest.mark.corpus
 def test_no_verse_contains_double_spaces(corpus_conn):
     offenders = corpus_conn.execute(
         "SELECT book, chapter, verse FROM verses WHERE text LIKE '%  %'"
@@ -213,7 +207,7 @@ def test_no_verse_contains_double_spaces(corpus_conn):
     assert offenders == [], f"{len(offenders)} verses have runs of >=2 spaces"
 
 
-@corpus_only
+@pytest.mark.corpus
 def test_no_stray_space_before_closing_curly_quote(corpus_conn):
     """Space-before-closing-quote is the specific bug that flagged this
     audit; guard against regression."""
@@ -231,7 +225,7 @@ def test_no_stray_space_before_closing_curly_quote(corpus_conn):
 # Specific verse spot-checks — sanity of well-known passages
 # ---------------------------------------------------------------------------
 
-@corpus_only
+@pytest.mark.corpus
 def test_psalm_117_has_two_verses(corpus_conn):
     verses = corpus_conn.execute(
         "SELECT verse FROM verses WHERE book='Psalms' AND chapter=117 "
@@ -240,7 +234,7 @@ def test_psalm_117_has_two_verses(corpus_conn):
     assert [v["verse"] for v in verses] == [1, 2]
 
 
-@corpus_only
+@pytest.mark.corpus
 def test_psalm_119_has_176_verses(corpus_conn):
     (n,) = corpus_conn.execute(
         "SELECT COUNT(*) FROM verses WHERE book='Psalms' AND chapter=119"
@@ -248,7 +242,7 @@ def test_psalm_119_has_176_verses(corpus_conn):
     assert n == 176
 
 
-@corpus_only
+@pytest.mark.corpus
 def test_genesis_1_5_contains_both_halves(corpus_conn):
     (text,) = corpus_conn.execute(
         "SELECT text FROM verses WHERE book='Genesis' AND chapter=1 AND verse=5"
@@ -258,7 +252,7 @@ def test_genesis_1_5_contains_both_halves(corpus_conn):
     assert "lineBreak" not in text
 
 
-@corpus_only
+@pytest.mark.corpus
 def test_john_3_16_is_the_expected_wording(corpus_conn):
     (text,) = corpus_conn.execute(
         "SELECT text FROM verses WHERE book='John' AND chapter=3 AND verse=16"
@@ -267,7 +261,7 @@ def test_john_3_16_is_the_expected_wording(corpus_conn):
     assert text.endswith("eternal life.")
 
 
-@corpus_only
+@pytest.mark.corpus
 def test_john_3_3_closing_quote_attaches(corpus_conn):
     """Regression test for the space-before-closing-quote bug."""
     (text,) = corpus_conn.execute(

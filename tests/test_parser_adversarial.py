@@ -25,12 +25,6 @@ from src.corpus.references import (
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DB_PATH = REPO_ROOT / "data" / "corpus" / "bible.db"
 
-corpus_only = pytest.mark.skipif(
-    not DB_PATH.exists(),
-    reason="requires data/corpus/bible.db (run: python -m src.ingest.bsb)",
-)
-
-
 def _strs(refs) -> list[str]:
     return [str(r) for r in refs]
 
@@ -200,7 +194,7 @@ def test_nonexistent_verse_parses_but_lookup_fails():
     assert parse_references("John 3:99") == [Reference("John", 3, 99)]
 
 
-@corpus_only
+@pytest.mark.corpus
 def test_nonexistent_lookups_return_none_or_empty():
     assert get_verse("John", 3, 99) is None
     assert get_verse("Psalms", 151, 1) is None
@@ -219,7 +213,7 @@ def test_out_of_range_still_parses(text):
     assert len(refs) == 1
 
 
-@corpus_only
+@pytest.mark.corpus
 def test_single_chapter_book_lookup_currently_impossible():
     """A follow-on from the highest-value case: because the parser reads
     'Jude 26' as chapter 26 rather than verse 26 of chapter 1, get_range
