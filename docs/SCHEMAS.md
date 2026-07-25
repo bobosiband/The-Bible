@@ -64,7 +64,9 @@ already exists, a `-2`, `-3`, ... suffix is inserted before `.jsonl`.
 | `git_sha`              | string \| null | 40-char SHA of `HEAD` when the run started. Null outside a git repo. |
 | `git_dirty`            | bool   | True if `git status --porcelain` was non-empty at run start. |
 | `corpus_sha256`        | string \| null | `sha256_local` from `corpus_meta` for the loaded BSB corpus. Null if the corpus is absent. |
-| `system_prompt_sha256` | string | SHA256 over the raw bytes of the loaded system prompt (default `prompts/system.v1.txt`; overridable per-run via `--system-prompt`). |
+| `system_prompt_sha256` | string | SHA256 over the raw bytes of the loaded system prompt (default `prompts/system.v1.txt` for baseline, `prompts/system.v2.txt` for grounded; overridable per-run via `--system-prompt`). |
+| `mode`                 | string | `"baseline"` or `"grounded"`. Baseline: v1 prompt, no retrieval, `retrieval` on every answer is null. Grounded: v2 prompt, retrieval passages inline in the user message, `retrieval` populated per the object below. |
+| `retrieval_params`     | object \| null | Null in baseline mode. In grounded mode: `{k, context, threshold, index_version}` — the parameters passed to `src.retrieval.retrieve`, duplicated at the run level so run files are self-describing. |
 
 ### `answer` (one per question)
 
@@ -86,7 +88,7 @@ already exists, a `-2`, `-3`, ... suffix is inserted before `.jsonl`.
 | `corpus_sha256`        | string \| null  | Same as `run_meta.corpus_sha256`. |
 | `latency_ms`           | integer \| null | Wall-clock milliseconds for this question. Populated even on error. |
 | `error`                | string \| null  | `"TypeName: message"` on failure; null on success. |
-| `retrieval`            | null            | **Reserved.** Always `null` in Stage 3. Populated in a later stage when retrieval lands. |
+| `retrieval`            | null \| object  | Null in baseline mode. In grounded mode: the retrieval object described below (populated whether the model was called or the pipeline abstained). |
 | `expected_refs`        | array[string]   | Only present if `expected_refs` was set in the QuestionRecord. Passed through unchanged. |
 
 ### `refs_in_answer[]` sub-schema
@@ -164,6 +166,29 @@ extracted from `answer` by `parse_references(answer)`:
 
 ---
 
+## `retrieval` object (grounded mode only)
+
+Present on every `answer` record in a grounded-mode run — whether the
+model was called or the pipeline abstained. Null in baseline runs.
+
+| Field                 | Type              | Notes |
+|-----------------------|-------------------|-------|
+| `mode`                | string            | Always `"grounded"` when present. Runs in `"baseline"` mode set `retrieval` to `null` on the answer, not to a mode-tagged object. |
+| `parameters`          | object            | `{k, context, threshold, index_version}` — duplicated from `run_meta.retrieval_params` so a single answer row is self-describing. `index_version` is the SHA256 of `src/retrieval/build_index.py` at the time the index was built, so a run can be pinned to the exact indexing logic. |
+| `passages`            | array[object]     | Zero or more `RetrievedPassage` objects (see sub-schema below). Empty array on abstention. |
+| `abstained`           | boolean           | `true` if the pipeline refused to call the model — either because retrieval returned no passages, or because the top passage's score was above the abstention threshold. `answer` is `null` when `abstained` is `true`. |
+| `abstention_reason`   | string \| null    | Non-null iff `abstained` is `true`. Human-readable explanation, e.g. `"no passages retrieved for the query"` or `"top passage score -1.234 above abstention threshold -5.000 (higher = weaker BM25 match)"`. |
+
+### Abstention
+
+Grounded mode never calls the model with an empty context. If retrieval
+returns no passages, or the top passage's BM25 score is above the
+threshold (BM25 is negative — a "high" score is a weak match), the
+pipeline emits an answer record with `answer=null`, `error=null`,
+`abstained=true`, and a populated `retrieval` object describing why.
+This is a first-class outcome, distinct from `error` (which surfaces
+setup failures like a missing DB or a broken model call).
+
 ## RetrievedPassage — `retrieval.passages[]` sub-schema
 
 Populated by `src.retrieval.retrieve` and carried into the `retrieval`
@@ -179,7 +204,7 @@ range, after context expansion) the grounded pipeline sent to the model.
 | `verse_end`   | integer         | Last verse number in the passage (in `end_chapter` if that is set; otherwise in `chapter`). Equal to `verse_start` for a single-verse passage. |
 | `end_chapter` | int \| null     | Non-null only for cross-chapter passages — `null` in the common case. |
 | `text`        | string          | Verbatim BSB text of the passage. Multiple verses are joined with a single ASCII space; no re-normalisation. |
-| `score`       | number          | BM25 score for keyword-search passages (SQLite's `bm25(verses_fts)`, negative — more negative = better). `0.0` sentinel for direct-lookup passages so they always sit above any BM25 abstention threshold. |
+| `score`       | number          | BM25 score for keyword-search passages (SQLite's `bm25(verses_fts)`, negative — more negative = better). Direct-lookup passages carry a large-negative sentinel (`-1e9`) so they sit below any BM25 abstention threshold — an explicit user reference is never gated by keyword scoring. |
 | `rank`        | integer         | 1-based rank inside the returned list. Ties are broken deterministically by canonical book order → chapter → verse. |
 
 ## Compatibility and evolution
