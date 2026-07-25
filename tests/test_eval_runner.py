@@ -305,6 +305,143 @@ def test_main_returns_nonzero_on_empty_questions(tmp_path, monkeypatch):
     assert rc == 4
 
 
+# ---------------------------------------------------------------------------
+# Grounded mode wiring — retrieval passages populated, abstention works
+# ---------------------------------------------------------------------------
+
+def test_run_meta_records_mode_and_retrieval_params_in_grounded(
+    wired_run, monkeypatch,
+):
+    """run_meta must carry mode='grounded' and a populated retrieval_params
+    object so a run file is self-describing."""
+    from src.retrieval import RetrievedPassage
+    questions, runs_dir, db, sysprompt, _ = wired_run
+    # Stub retrieval so we don't need an FTS5 index in this fixture DB.
+    def stub_retrieve(query, **kwargs):
+        return [RetrievedPassage(
+            reference="John 3:16", book="John", chapter=3,
+            verse_start=16, verse_end=16, text="For God so loved...",
+            score=-15.0, rank=1,
+        )]
+    import src.pipeline as pipeline
+    monkeypatch.setattr(pipeline, "retrieve", stub_retrieve)
+
+    out = ev.run(
+        model="stub-model", questions_path=questions, runs_dir=runs_dir,
+        options={"temperature": 0.0}, timeout_s=5.0,
+        db_path=db, system_prompt_path=sysprompt,
+        mode="grounded", retrieval_k=3, retrieval_context=1,
+        abstention_threshold=-4.0,
+    )
+    records = _read_jsonl(out)
+    meta = records[0]
+    assert meta["mode"] == "grounded"
+    assert meta["retrieval_params"]["k"] == 3
+    assert meta["retrieval_params"]["context"] == 1
+    assert meta["retrieval_params"]["threshold"] == -4.0
+
+
+def test_grounded_run_populates_retrieval_object_on_each_answer(
+    wired_run, monkeypatch,
+):
+    """Every non-abstained grounded answer carries a retrieval object
+    with mode, parameters, and the passages the model saw."""
+    from src.retrieval import RetrievedPassage
+    questions, runs_dir, db, sysprompt, _ = wired_run
+    passages = [RetrievedPassage(
+        reference="John 3:16", book="John", chapter=3,
+        verse_start=16, verse_end=16, text="For God so loved...",
+        score=-15.0, rank=1,
+    )]
+    import src.pipeline as pipeline
+    monkeypatch.setattr(pipeline, "retrieve", lambda q, **_: passages)
+
+    out = ev.run(
+        model="stub", questions_path=questions, runs_dir=runs_dir,
+        options={}, timeout_s=5.0, db_path=db, system_prompt_path=sysprompt,
+        mode="grounded", abstention_threshold=-5.0,
+    )
+    answers = [r for r in _read_jsonl(out) if r["type"] == "answer"]
+    for a in answers:
+        if a["error"] is not None:
+            continue   # per-question errors don't populate retrieval
+        assert a["retrieval"] is not None
+        assert a["retrieval"]["mode"] == "grounded"
+        assert a["retrieval"]["abstained"] is False
+        assert len(a["retrieval"]["passages"]) == 1
+        assert a["retrieval"]["passages"][0]["reference"] == "John 3:16"
+
+
+def test_grounded_run_abstains_when_retrieval_empty(wired_run, monkeypatch):
+    """Empty retrieval → abstention record. Model NOT called; the
+    stub client's call log stays at zero."""
+    questions, runs_dir, db, sysprompt, stub = wired_run
+    stub.calls.clear()
+    import src.pipeline as pipeline
+    monkeypatch.setattr(pipeline, "retrieve", lambda q, **_: [])
+
+    out = ev.run(
+        model="stub", questions_path=questions, runs_dir=runs_dir,
+        options={}, timeout_s=5.0, db_path=db, system_prompt_path=sysprompt,
+        mode="grounded",
+    )
+    answers = [r for r in _read_jsonl(out) if r["type"] == "answer"]
+    for a in answers:
+        assert a["answer"] is None
+        assert a["retrieval"]["abstained"] is True
+        assert "no passages retrieved" in a["retrieval"]["abstention_reason"]
+    # Model never called across all three questions.
+    assert stub.calls == []
+
+
+def test_baseline_mode_leaves_retrieval_null(wired_run):
+    """Baseline default: retrieval stays null and no retrieval_params
+    show up in the run_meta record."""
+    questions, runs_dir, db, sysprompt, _ = wired_run
+    out = ev.run(
+        model="stub", questions_path=questions, runs_dir=runs_dir,
+        options={}, timeout_s=5.0, db_path=db, system_prompt_path=sysprompt,
+        mode="baseline",
+    )
+    records = _read_jsonl(out)
+    assert records[0]["mode"] == "baseline"
+    assert records[0]["retrieval_params"] is None
+    answers = [r for r in records if r["type"] == "answer"]
+    assert all(a["retrieval"] is None for a in answers)
+
+
+def test_default_prompt_switches_by_mode(wired_run, monkeypatch):
+    """Grounded runs must default to prompts/system.v2.txt when no
+    explicit --system-prompt is passed; baseline defaults to v1."""
+    from src.retrieval import RetrievedPassage
+    questions, runs_dir, db, _sys_ignored, _ = wired_run
+    passages = [RetrievedPassage(
+        reference="John 3:16", book="John", chapter=3,
+        verse_start=16, verse_end=16, text="x", score=-15.0, rank=1,
+    )]
+    import src.pipeline as pipeline
+    monkeypatch.setattr(pipeline, "retrieve", lambda q, **_: passages)
+
+    baseline_out = ev.run(
+        model="stub", questions_path=questions, runs_dir=runs_dir,
+        options={}, timeout_s=5.0, db_path=db,
+        mode="baseline",
+    )
+    grounded_out = ev.run(
+        model="stub", questions_path=questions, runs_dir=runs_dir,
+        options={}, timeout_s=5.0, db_path=db,
+        mode="grounded", abstention_threshold=-5.0,
+    )
+    import hashlib
+    v1_sha = hashlib.sha256(ev.BASELINE_SYSTEM_PROMPT.read_bytes()).hexdigest()
+    v2_sha = hashlib.sha256(ev.GROUNDED_SYSTEM_PROMPT.read_bytes()).hexdigest()
+
+    b_meta = _read_jsonl(baseline_out)[0]
+    g_meta = _read_jsonl(grounded_out)[0]
+    assert b_meta["system_prompt_sha256"] == v1_sha
+    assert g_meta["system_prompt_sha256"] == v2_sha
+
+
 def test_run_never_overwrites_existing_run_file(wired_run, monkeypatch):
     questions, runs_dir, db, sysprompt, _ = wired_run
     out1 = ev.run(
