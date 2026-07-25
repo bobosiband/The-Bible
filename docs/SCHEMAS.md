@@ -64,7 +64,7 @@ already exists, a `-2`, `-3`, ... suffix is inserted before `.jsonl`.
 | `git_sha`              | string \| null | 40-char SHA of `HEAD` when the run started. Null outside a git repo. |
 | `git_dirty`            | bool   | True if `git status --porcelain` was non-empty at run start. |
 | `corpus_sha256`        | string \| null | `sha256_local` from `corpus_meta` for the loaded BSB corpus. Null if the corpus is absent. |
-| `system_prompt_sha256` | string | SHA256 over the raw bytes of `prompts/system.txt`. |
+| `system_prompt_sha256` | string | SHA256 over the raw bytes of the loaded system prompt (default `prompts/system.v1.txt`; overridable per-run via `--system-prompt`). |
 
 ### `answer` (one per question)
 
@@ -156,9 +156,11 @@ extracted from `answer` by `parse_references(answer)`:
    or chapter genuinely isn't there. Do not conflate.
 
 5. **The system prompt is a versioned file.** It lives at
-   `prompts/system.txt`. Its SHA256 is captured per-run in every record.
-   Any edit invalidates comparisons across runs; the hash makes that
-   invalidation explicit rather than silent.
+   `prompts/system.vN.txt` (currently `prompts/system.v1.txt`; see
+   `prompts/README.md` for the versioning rule — new versions are new
+   files, never in-place edits). Its SHA256 is captured per-run in every
+   record. Any edit invalidates comparisons across runs; the hash makes
+   that invalidation explicit rather than silent.
 
 ---
 

@@ -178,3 +178,81 @@ Notably:
 Corpus fidelity is now claimed against a real DB, not asserted in the
 abstract.
 
+---
+
+## Stage 4 verification
+
+Date: 2026-07-25. Re-run at the top of Stage 4 to ensure nothing has
+drifted since the Stage 3 audit and to re-establish the loader/corpus
+fingerprint against a fresh forced reload.
+
+### Forced re-ingest
+
+Command:
+
+```
+$ python -m src.ingest.bsb --force
+[skip] bsb_complete.json already downloaded
+[done] bible.db: 66 books, 1189 chapters, 31086 verses (sha256=5cb6ce27311d…)
+```
+
+### `corpus_meta` after `--force`
+
+| Field           | Value |
+|-----------------|-------|
+| `translation`   | `BSB` |
+| `source_url`    | (unchanged from Stage 3) `https://bible.helloao.org/api/BSB/complete.json` |
+| `retrieved_at`  | `2026-07-23T05:50:34+00:00` |
+| `sha256_local`  | `5cb6ce27311dda29cb94c10bb968e6185a21f563fb273b2d0e23b833c84f2711` |
+| `sha256_upstream` | `6cc5238e442b4204b0f617cc5c932bc04f3bae4a0658e6393b0e319653ebe37f` |
+| `book_count`    | `66` |
+| `chapter_count` | `1189` |
+| `verse_count`   | `31086` |
+| `loader_version`| `11ca4f036948096f840c7a984b473324c23238cfb2c392eb6464d44c6d5f5977` |
+
+`sha256_local` matches `EXPECTED_SHA256` pinned in `src/ingest/bsb.py`.
+`loader_version` is unchanged from the 2026-07-24 audit, confirming
+`src/ingest/bsb.py` has not been edited between the two audits.
+
+### Verse-text drift from the forced reload
+
+Row-by-row diff of every verse's text before and after `--force`:
+
+- Rows differing: **0** out of 31,086.
+- SHA256 of the concatenated `book|chapter|verse|text\n` stream: identical
+  pre- and post-force
+  (`abf0d4d637960761eddf577f57f6c48a56857caddccc2a01fba00d91b8a838eb`).
+
+Same SHA the 2026-07-24 audit recorded: the DB text has not moved
+since Stage 2's closing-quote fix landed, and neither did this reload.
+
+### `pytest --require-corpus` result
+
+```
+============================= 348 passed in 0.69s ==============================
+```
+
+Notably (targeted verification of the pieces Stage 4 called out):
+
+- `tests/test_normalize.py` — **16 passed**. Exhaustive coverage of
+  `canonical_reference_string`'s valid and nonsense combinations;
+  guarantees no output emits the literal token `None`.
+- `tests/test_parse_reference.py` — **95 passed**. Round-trips through
+  all 66 canonical book names, every range shape (whole chapter, verse,
+  within-chapter range, cross-chapter range, single-chapter-book rewrite),
+  plus the strict-parser error surface.
+- `tests/test_citation_check.py` — **17 passed**. Harness loads and
+  validates the fixture, calls a test-injected classifier exactly once
+  per non-error reference, exits cleanly with the real (NotImplementedError)
+  stub, and aborts on a missing corpus DB before scoring anything.
+- `tests/test_book_map_consistency.py` — **3 passed**. All 66 parser
+  canonical names still resolve against the real DB and all 66 DB names
+  still round-trip through `normalize_book`.
+- `tests/test_corpus_text.py` — **22 passed**. Every whole-corpus
+  fidelity assertion still holds after the forced reload.
+
+The Stage 2 fidelity claim continues to hold against the DB actually
+present on disk; the parser and DB book-name namespaces remain aligned;
+the Stage 3 checker harness is intact.
+
+
