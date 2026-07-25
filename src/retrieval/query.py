@@ -45,10 +45,14 @@ DEFAULT_TRANSLATION = "BSB"
 _BOOK_ORDER = {name: i for i, name in enumerate(BOOKS)}
 
 # Sentinel score for direct-lookup passages. BM25 scores are negative
-# (more negative = better); 0.0 keeps direct-lookup results above any
-# realistic abstention threshold so the grounded pipeline never abstains
-# on a user-supplied explicit reference.
-_DIRECT_LOOKUP_SCORE = 0.0
+# (more negative = better) and the grounded pipeline abstains when the
+# top passage's score is ABOVE a negative threshold — so the sentinel
+# must be far more negative than any realistic BM25 score. A user's
+# explicit reference must never be gated by keyword-scoring heuristics.
+# `float('-inf')` would express this most clearly but is not JSON-safe;
+# -1e9 is small enough to sit under any real BM25 value (which never
+# exceed roughly -100 in practice) while remaining serialisable.
+_DIRECT_LOOKUP_SCORE = -1e9
 
 
 class IndexOutOfSyncError(RuntimeError):

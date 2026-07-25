@@ -151,11 +151,16 @@ def test_direct_lookup_context_clipped_at_chapter_end(indexed_fixture_db):
     assert r.verse_end == 7
 
 
-def test_direct_lookup_score_is_zero(indexed_fixture_db):
-    """Direct-lookup passages carry a sentinel score of 0.0 so they sit
-    above any BM25 abstention threshold in the grounded pipeline."""
+def test_direct_lookup_score_is_far_negative_sentinel(indexed_fixture_db):
+    """Direct-lookup passages carry a large-negative sentinel so they
+    sit BELOW any BM25 abstention threshold in the grounded pipeline
+    (BM25 scores are negative; more negative = better; abstention
+    triggers when the top score is ABOVE a negative threshold)."""
     results = retrieve("John 3:16", db_path=indexed_fixture_db)
-    assert results[0].score == 0.0
+    # Sentinel is deliberately far more negative than any realistic
+    # BM25 score. -1e6 gives ample headroom below any plausible
+    # abstention threshold and any real bm25() output.
+    assert results[0].score < -1e6
 
 
 # ---------------------------------------------------------------------------
