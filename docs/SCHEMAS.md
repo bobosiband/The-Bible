@@ -164,6 +164,24 @@ extracted from `answer` by `parse_references(answer)`:
 
 ---
 
+## RetrievedPassage — `retrieval.passages[]` sub-schema
+
+Populated by `src.retrieval.retrieve` and carried into the `retrieval`
+key on grounded-mode `answer` records. One element per verse (or verse
+range, after context expansion) the grounded pipeline sent to the model.
+
+| Field         | Type            | Notes |
+|---------------|-----------------|-------|
+| `reference`   | string          | Canonical printed form via `canonical_reference_string` (e.g. `"John 3:16"`, `"1 Corinthians 13:4-7"`, `"Genesis 1:1-2:3"`). The authoritative pointer. |
+| `book`        | string          | Canonical book name. Matches the DB and parser namespace. |
+| `chapter`     | integer         | Starting chapter of the passage. |
+| `verse_start` | integer         | First verse number in the passage. |
+| `verse_end`   | integer         | Last verse number in the passage (in `end_chapter` if that is set; otherwise in `chapter`). Equal to `verse_start` for a single-verse passage. |
+| `end_chapter` | int \| null     | Non-null only for cross-chapter passages — `null` in the common case. |
+| `text`        | string          | Verbatim BSB text of the passage. Multiple verses are joined with a single ASCII space; no re-normalisation. |
+| `score`       | number          | BM25 score for keyword-search passages (SQLite's `bm25(verses_fts)`, negative — more negative = better). `0.0` sentinel for direct-lookup passages so they always sit above any BM25 abstention threshold. |
+| `rank`        | integer         | 1-based rank inside the returned list. Ties are broken deterministically by canonical book order → chapter → verse. |
+
 ## Compatibility and evolution
 
 - **`retrieval`** is reserved as `null`. When retrieval lands the field
