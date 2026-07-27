@@ -31,6 +31,7 @@ from pathlib import Path
 
 import ollama
 
+from src.eval.validate_questions import parse_valid_records, validate_file
 from src.pipeline import (
     DEFAULT_ABSTENTION_THRESHOLD,
     DEFAULT_CONTEXT,
@@ -129,20 +130,15 @@ class EmptyQuestionsError(RuntimeError):
 def load_questions(path: Path) -> list[dict]:
     if not path.exists():
         return []
-    questions = []
-    for lineno, raw in enumerate(path.read_text().splitlines(), start=1):
-        line = raw.strip()
-        if not line or line.startswith("#"):
-            continue
-        try:
-            q = json.loads(line)
-        except json.JSONDecodeError as e:
-            raise SystemExit(f"{path}:{lineno}: invalid JSON — {e}")
-        if "question" not in q:
-            raise SystemExit(f"{path}:{lineno}: missing 'question' field")
-        q.setdefault("id", f"q{lineno:03d}")
-        questions.append(q)
-    return questions
+    # Delegate validation to the shared validator so the runner and
+    # `make validate-questions` agree on what counts as a valid file.
+    errors = validate_file(path)
+    if errors:
+        # Preserve the SystemExit-on-first-error contract callers relied
+        # on pre-Stage-5, but surface every error rather than only the
+        # first so a repo owner sees the whole list at once.
+        raise SystemExit("\n".join(e.format() for e in errors))
+    return parse_valid_records(path)
 
 
 # ---------------------------------------------------------------------------
