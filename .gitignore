@@ -18,5 +18,8 @@ data/corpus/*.json
 data/corpus/*.raw
 data/eval/runs/
 
+# Local experiment output (regenerable via `make experiment`)
+reports/
+
 # ai
 .claude/

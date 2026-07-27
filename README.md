@@ -122,8 +122,56 @@ a loud summary line so you know you're not getting the full audit.
 ## Tests
 
 ```bash
-pytest
+make test          # or:   pytest
+make test-corpus   # or:   pytest --require-corpus
 ```
+
+## Interactive use — CLI and web chat
+
+Neither of these writes to `data/eval/runs/`. They're UIs over the
+shared pipeline; only `make experiment` produces eval data.
+
+```bash
+make cli                                          # REPL
+.venv/bin/python -m src.cli --mode baseline "Q?"  # one-shot
+```
+
+```bash
+make chat            # http://127.0.0.1:8765
+```
+
+The chat page has a Grounded/Baseline toggle. **Baseline mode carries
+a persistent red banner reminding you citations may be fabricated —
+baseline exists to measure that fabrication, not for study.**
+
+## The experiment loop
+
+The end-to-end workflow, in the order you actually do it:
+
+1. **Label the checker fixtures.** Fill in `expected.verdicts` in each
+   `tests/checker_fixtures/fixture_*.json` (they start as
+   `LABELS_PENDING`). The fixture-scoring tests skip until this and
+   step 3 are both done.
+2. **Write your eval questions.** One JSON object per line in
+   `data/eval/questions.jsonl` (schema above). `make validate-questions`
+   line-lints the file.
+3. **Implement `classify_citation`** in `src/eval/citation_check.py`
+   per the spec in `docs/CITATION_METRIC.md`.
+4. **Run the experiment:**
+   ```bash
+   make experiment
+   ```
+   This validates the questions, runs baseline, runs grounded, checks
+   both against the corpus, and writes a side-by-side markdown report
+   to `reports/`. Idempotent — run files never overwrite, so a
+   mid-flight failure leaves a trail rather than clobbering prior
+   runs.
+
+`make experiment` fails gracefully at exactly two points:
+- questions.jsonl missing/invalid/empty (steps 2 or before).
+- `classify_citation` still `NotImplementedError` (step 3 pending).
+
+Both failures print a message pointing at the file to fix.
 
 ## Contributing / commit style
 
