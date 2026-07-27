@@ -202,6 +202,7 @@ def build_run_meta(
     git_sha: str | None,
     git_dirty: bool,
     system_prompt_sha256: str,
+    questions_sha256: str,
     mode: str = MODE_BASELINE,
     retrieval_params: dict | None = None,
 ) -> dict:
@@ -215,9 +216,17 @@ def build_run_meta(
         "git_dirty": git_dirty,
         "corpus_sha256": corpus_sha256,
         "system_prompt_sha256": system_prompt_sha256,
+        "questions_sha256": questions_sha256,
         "mode": mode,
         "retrieval_params": retrieval_params,
     }
+
+
+def hash_questions_file(path: Path) -> str:
+    """SHA256 over the raw bytes of the questions file. Used by
+    compare_runs to refuse cross-comparisons of runs against different
+    question sets."""
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def _read_index_version(db_path: Path, translation: str = "BSB") -> str | None:
@@ -277,6 +286,7 @@ def run(
 
     corpus_sha256 = read_corpus_sha256(db_path)
     git_sha, git_dirty = read_git_state()
+    questions_sha256 = hash_questions_file(questions_path)
     index_version = _read_index_version(db_path) if mode == MODE_GROUNDED else None
     retrieval_params = None
     if mode == MODE_GROUNDED:
@@ -288,7 +298,8 @@ def run(
         }
     meta = build_run_meta(
         model, options, timeout_s, corpus_sha256, git_sha, git_dirty,
-        system_prompt_sha256, mode=mode, retrieval_params=retrieval_params,
+        system_prompt_sha256, questions_sha256,
+        mode=mode, retrieval_params=retrieval_params,
     )
 
     # A per-call timeout is what the brief requires. Setting it on the

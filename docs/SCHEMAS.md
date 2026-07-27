@@ -65,6 +65,7 @@ already exists, a `-2`, `-3`, ... suffix is inserted before `.jsonl`.
 | `git_dirty`            | bool   | True if `git status --porcelain` was non-empty at run start. |
 | `corpus_sha256`        | string \| null | `sha256_local` from `corpus_meta` for the loaded BSB corpus. Null if the corpus is absent. |
 | `system_prompt_sha256` | string | SHA256 over the raw bytes of the loaded system prompt (default `prompts/system.v1.txt` for baseline, `prompts/system.v2.txt` for grounded; overridable per-run via `--system-prompt`). |
+| `questions_sha256`     | string | SHA256 over the raw bytes of the questions file (`data/eval/questions.jsonl` by default). Lets `compare_runs.py` refuse to compare runs against a shifted question set. May be absent on pre-Stage-5 run files. |
 | `mode`                 | string | `"baseline"` or `"grounded"`. Baseline: v1 prompt, no retrieval, `retrieval` on every answer is null. Grounded: v2 prompt, retrieval passages inline in the user message, `retrieval` populated per the object below. |
 | `retrieval_params`     | object \| null | Null in baseline mode. In grounded mode: `{k, context, threshold, index_version}` — the parameters passed to `src.retrieval.retrieve`, duplicated at the run level so run files are self-describing. |
 
@@ -109,7 +110,7 @@ extracted from `answer` by `parse_references(answer)`:
 ### Worked `run_meta` example
 
 ```json
-{"type":"run_meta","run_started_at":"2026-07-24T13:22:05+00:00","model":"qwen2.5:3b","options":{"temperature":0.0,"top_p":1.0,"seed":1},"timeout_s":120.0,"git_sha":"4166107aabbcc00112233445566778899aabbccd","git_dirty":false,"corpus_sha256":"5cb6ce27311dda29cb94c10bb968e6185a21f563fb273b2d0e23b833c84f2711","system_prompt_sha256":"c1d2e3f4...(64 hex chars)"}
+{"type":"run_meta","run_started_at":"2026-07-24T13:22:05+00:00","model":"qwen2.5:3b","options":{"temperature":0.0,"top_p":1.0,"seed":1},"timeout_s":120.0,"git_sha":"4166107aabbcc00112233445566778899aabbccd","git_dirty":false,"corpus_sha256":"5cb6ce27311dda29cb94c10bb968e6185a21f563fb273b2d0e23b833c84f2711","system_prompt_sha256":"c1d2e3f4...(64 hex chars)","questions_sha256":"9f9ac0d3...(64 hex chars)"}
 ```
 
 ### Worked `answer` example
@@ -217,3 +218,98 @@ range, after context expansion) the grounded pipeline sent to the model.
 - Additive changes (new optional fields) may be introduced without
   approval; removal or renaming of any field listed above is a breaking
   change and requires explicit sign-off.
+
+---
+
+## CheckerReport — `src/eval/citation_check.py` output
+
+`RunReport.to_json()` writes this shape, and `src/eval/compare_runs.py`
+reads it. Frozen after Stage 5 — additive changes only.
+
+```json
+{
+  "meta": { /* verbatim copy of the run_meta record from the scored run file */ },
+  "per_question": [
+    {
+      "question_id": "q001",
+      "question": "…",
+      "answer": "…" | null,
+      "error": null | "TypeName: message",
+      "results": [
+        {
+          "ref": {
+            "book": "1 Corinthians",
+            "chapter": 13,
+            "verse": 4,
+            "end_verse": 7,
+            "end_chapter": null,
+            "start": 41,
+            "end": 58
+          },
+          "verdict": "RESOLVED" | "UNRESOLVABLE" | "MISQUOTED" | "UNSUPPORTED" | "ERROR",
+          "detail": "human-readable explanation from classify_citation",
+          "quoted_span": [start_char, end_char] | null,
+          "corpus_text": "verbatim BSB text for this reference" | null
+        }
+      ],
+      "counts": {"RESOLVED": 1, "UNRESOLVABLE": 0}
+    }
+  ],
+  "totals": {"RESOLVED": 24, "UNRESOLVABLE": 3, "MISQUOTED": 2,
+              "UNSUPPORTED": 1, "ERROR": 0}
+}
+```
+
+### Rules
+
+1. `per_question` is in **questions.jsonl order** — same order as the
+   underlying run file. Not sorted, not deduped.
+2. `results` is in the same order as `refs_in_answer` on the underlying
+   answer record (positional in the model's text).
+3. `counts` may omit zero-valued verdicts per question. `totals` always
+   includes all five verdicts, with zeros where applicable.
+4. `meta` is copied VERBATIM from the run file's `run_meta`. The report
+   never rewrites or normalises provenance — a comparator downstream can
+   trust `meta` and the run file to agree byte-for-byte.
+5. Error answers (`error != null`) contribute `results: []` and no
+   counts, but still appear in `per_question` so the ordering matches
+   the run file.
+6. The verdict strings are the enum values from `Verdict` in
+   `src/eval/citation_check.py`. Additions to `Verdict` are additive
+   here too: comparators must handle unknown verdict strings by
+   reporting them, never by crashing.
+
+---
+
+## CheckerFixture — `tests/checker_fixtures/*.json` (test-only)
+
+Test-only schema. One JSON object per file. Read by
+`tests/test_checker_fixtures.py` and by the fixture generator; not
+consumed by any production code path.
+
+```json
+{
+  "entry":    { /* a single EvalRunEntry `answer` record (line-2+ shape above) */ },
+  "expected": {
+    "verdicts":     ["RESOLVED", "MISQUOTED"] | "LABELS_PENDING",
+    "quoted_spans": [[41, 82], null]          | "LABELS_PENDING",
+    "notes":        "free-text pointers for the labeller" | "LABELS_PENDING"
+  }
+}
+```
+
+### Rules
+
+1. Every `expected.*` field is `"LABELS_PENDING"` (literal string) until
+   the repo owner labels it. A filled-in `expected.*` field is a claim
+   about ground truth; the harness will assert against it.
+2. When `expected.verdicts` is `"LABELS_PENDING"`, the test for that
+   fixture SKIPS with a clear reason line. It never passes vacuously.
+3. When `classify_citation` still raises `NotImplementedError`, every
+   fixture test skips regardless of labelling — you can't grade the
+   scorer if there is no scorer.
+4. Fixtures are constructed mechanically from real BSB text via
+   `tests/checker_fixtures/_generate.py`. The generator is committed
+   alongside the fixture files so they can be regenerated if the
+   `EvalRunEntry` schema evolves — but the harness reads the frozen
+   JSON files, not the generator output.

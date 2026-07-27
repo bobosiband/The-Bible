@@ -133,6 +133,7 @@ def test_build_run_meta_captures_all_provenance_fields():
         git_sha="a" * 40,
         git_dirty=True,
         system_prompt_sha256="d" * 64,
+        questions_sha256="e" * 64,
     )
     assert meta["type"] == "run_meta"
     assert meta["model"] == "qwen2.5:3b"
@@ -142,7 +143,18 @@ def test_build_run_meta_captures_all_provenance_fields():
     assert meta["git_sha"] == "a" * 40
     assert meta["git_dirty"] is True
     assert meta["system_prompt_sha256"] == "d" * 64
+    assert meta["questions_sha256"] == "e" * 64
     assert meta["run_started_at"].endswith("+00:00")
+
+
+def test_hash_questions_file_is_stable_over_content(tmp_path):
+    q = tmp_path / "q.jsonl"
+    q.write_bytes(b'{"id":"q001","question":"x"}\n')
+    h1 = ev.hash_questions_file(q)
+    h2 = ev.hash_questions_file(q)
+    assert h1 == h2 and len(h1) == 64
+    q.write_bytes(b'{"id":"q001","question":"y"}\n')
+    assert ev.hash_questions_file(q) != h1
 
 
 # ---------------------------------------------------------------------------
