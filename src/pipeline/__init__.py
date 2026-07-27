@@ -15,6 +15,12 @@ Two modes:
 Abstention is a first-class outcome. Sending an empty context to the
 model would produce ungrounded text against a prompt that told it to
 ground its answer — that's a self-inflicted fabrication case.
+
+The module is split into small preparation helpers so the streaming
+web server can reuse them: `prepare_baseline` and `prepare_grounded`
+do everything up to the model call, `finalise_answer` extracts refs
+and builds the record from the model text. `answer_question` composes
+them for the eval runner. Same code, two paths.
 """
 from __future__ import annotations
 
@@ -62,6 +68,23 @@ class PipelineOutput:
     error: str | None = None
     # Passages kept as objects so tests can assert on them without
     # re-deserialising the dict form.
+    passages: list[RetrievedPassage] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class PreparedCall:
+    """Everything the caller needs to make the model call and then build
+    the final record. Returned by `prepare_baseline` and the non-abstain
+    path of `prepare_grounded`.
+
+    The web server needs this shape because it emits the `passages`
+    event before starting the token stream — it can't wait for the full
+    `PipelineOutput` to come back from `answer_question`.
+    """
+    system_prompt: str
+    user_message: str
+    prompt_text: str
+    retrieval: dict | None
     passages: list[RetrievedPassage] = field(default_factory=list)
 
 
@@ -148,6 +171,160 @@ def _grounded_prompt_text(system_prompt: str, user_msg: str) -> str:
     return f"[system]\n{system_prompt}\n\n[user]\n{user_msg}"
 
 
+def prepare_baseline(question: str, system_prompt: str) -> PreparedCall:
+    """Assemble the prompt for a baseline-mode question. No retrieval,
+    no model call — the caller invokes the model itself and then hands
+    the raw answer to `finalise_answer`."""
+    return PreparedCall(
+        system_prompt=system_prompt,
+        user_message=question,
+        prompt_text=_baseline_prompt_text(system_prompt, question),
+        retrieval=None,
+        passages=[],
+    )
+
+
+@dataclass(frozen=True)
+class GroundedPreparation:
+    """Result of `prepare_grounded`.
+
+    Either an abstention (in which case `call` is None and `output` is a
+    complete PipelineOutput ready to write), or a call to make (in which
+    case `call` is a PreparedCall and `output` is None).
+
+    Errors during retrieval surface as `output` with `error` populated
+    and `call` None — same behaviour as the pre-refactor pipeline.
+    """
+    call: PreparedCall | None
+    output: PipelineOutput | None
+
+    @property
+    def ready(self) -> bool:
+        return self.call is not None
+
+
+def prepare_grounded(
+    question: str,
+    *,
+    system_prompt: str,
+    k: int = DEFAULT_K,
+    context: int = DEFAULT_CONTEXT,
+    threshold: float = DEFAULT_ABSTENTION_THRESHOLD,
+    db_path: Path | None = None,
+    translation: str = "BSB",
+    index_version: str | None = None,
+    retrieve_fn: Callable[..., list[RetrievedPassage]] | None = None,
+) -> GroundedPreparation:
+    """Run retrieval and the abstention decision. Never calls the model.
+
+    Return contract:
+    - Retrieval error → `output` populated with `error` set, `call=None`.
+    - Abstention (empty passages or top score above threshold) →
+      `output` populated with `abstained=True`, `answer=None`, `call=None`.
+    - Otherwise → `call` populated with the assembled prompt and
+      passages, `output=None`. The caller invokes the model and passes
+      the raw answer to `finalise_answer`.
+    """
+    kwargs: dict = {"k": k, "context": context, "translation": translation}
+    if db_path is not None:
+        kwargs["db_path"] = db_path
+    retriever = retrieve_fn or retrieve
+    try:
+        passages = retriever(question, **kwargs)
+    except Exception as e:
+        # A retrieval failure (missing DB, out-of-sync index) is a setup
+        # problem — surface it as the error field, do NOT abstain (an
+        # abstention record would falsely claim the corpus was OK but
+        # simply had nothing relevant).
+        prompt_text = _grounded_prompt_text(system_prompt, question)
+        return GroundedPreparation(
+            call=None,
+            output=PipelineOutput(
+                prompt=prompt_text, answer=None, refs_in_answer=[],
+                retrieval=None, abstained=False,
+                error=f"{type(e).__name__}: {e}",
+            ),
+        )
+
+    reason = _decide_abstention(passages, threshold)
+    if reason is not None:
+        retrieval_obj = _retrieval_object(
+            mode=MODE_GROUNDED, passages=[], k=k, context=context,
+            threshold=threshold, abstained=True, abstention_reason=reason,
+            index_version=index_version,
+        )
+        # Record the prompt as it WOULD have been assembled with an
+        # empty passages block; makes the run file self-describing
+        # even for abstentions.
+        prompt_text = _grounded_prompt_text(
+            system_prompt,
+            build_grounded_user_message(question, []),
+        )
+        return GroundedPreparation(
+            call=None,
+            output=PipelineOutput(
+                prompt=prompt_text, answer=None, refs_in_answer=[],
+                retrieval=retrieval_obj, abstained=True, error=None,
+                passages=[],
+            ),
+        )
+
+    user_msg = build_grounded_user_message(question, passages)
+    prompt_text = _grounded_prompt_text(system_prompt, user_msg)
+    retrieval_obj = _retrieval_object(
+        mode=MODE_GROUNDED, passages=passages, k=k, context=context,
+        threshold=threshold, abstained=False, abstention_reason=None,
+        index_version=index_version,
+    )
+    return GroundedPreparation(
+        call=PreparedCall(
+            system_prompt=system_prompt,
+            user_message=user_msg,
+            prompt_text=prompt_text,
+            retrieval=retrieval_obj,
+            passages=passages,
+        ),
+        output=None,
+    )
+
+
+def finalise_answer(
+    answer_text: str,
+    call: PreparedCall,
+) -> PipelineOutput:
+    """Turn a successful model call into a PipelineOutput. Extracts
+    references from the raw answer text via the shared `parse_references`
+    (same code path the SSE server uses for its `done` event)."""
+    refs = [reference_to_dict(r) for r in parse_references(answer_text or "")]
+    return PipelineOutput(
+        prompt=call.prompt_text,
+        answer=answer_text,
+        refs_in_answer=refs,
+        retrieval=call.retrieval,
+        abstained=False,
+        error=None,
+        passages=call.passages,
+    )
+
+
+def finalise_error(
+    exc: Exception,
+    call: PreparedCall,
+) -> PipelineOutput:
+    """Turn a model-call exception into a PipelineOutput. Preserves the
+    retrieved passages so the run file records what the model would
+    have seen."""
+    return PipelineOutput(
+        prompt=call.prompt_text,
+        answer=None,
+        refs_in_answer=[],
+        retrieval=call.retrieval,
+        abstained=False,
+        error=f"{type(exc).__name__}: {exc}",
+        passages=call.passages,
+    )
+
+
 def answer_question(
     question: str,
     *,
@@ -186,84 +363,24 @@ def answer_question(
         )
 
     if mode == MODE_BASELINE:
-        prompt_text = _baseline_prompt_text(system_prompt, question)
+        call = prepare_baseline(question, system_prompt)
         try:
-            answer = call_model(system_prompt, question)
+            answer = call_model(call.system_prompt, call.user_message)
         except Exception as e:
-            return PipelineOutput(
-                prompt=prompt_text, answer=None, refs_in_answer=[],
-                retrieval=None, abstained=False,
-                error=f"{type(e).__name__}: {e}",
-            )
-        refs = [reference_to_dict(r) for r in parse_references(answer or "")]
-        return PipelineOutput(
-            prompt=prompt_text, answer=answer, refs_in_answer=refs,
-            retrieval=None, abstained=False, error=None,
-        )
+            return finalise_error(e, call)
+        return finalise_answer(answer, call)
 
-    # Grounded mode.
-    kwargs: dict = {"k": k, "context": context, "translation": translation}
-    if db_path is not None:
-        kwargs["db_path"] = db_path
-    retriever = retrieve_fn or retrieve
-    try:
-        passages = retriever(question, **kwargs)
-    except Exception as e:
-        # A retrieval failure (missing DB, out-of-sync index) is a setup
-        # problem — surface it as the error field, do NOT abstain (an
-        # abstention record would falsely claim the corpus was OK but
-        # simply had nothing relevant).
-        prompt_text = _grounded_prompt_text(system_prompt, question)
-        return PipelineOutput(
-            prompt=prompt_text, answer=None, refs_in_answer=[],
-            retrieval=None, abstained=False,
-            error=f"{type(e).__name__}: {e}",
-        )
-
-    reason = _decide_abstention(passages, threshold)
-    if reason is not None:
-        retrieval_obj = _retrieval_object(
-            mode=MODE_GROUNDED, passages=[], k=k, context=context,
-            threshold=threshold, abstained=True, abstention_reason=reason,
-            index_version=index_version,
-        )
-        # Record the prompt as it WOULD have been assembled with an
-        # empty passages block; makes the run file self-describing
-        # even for abstentions.
-        prompt_text = _grounded_prompt_text(
-            system_prompt,
-            build_grounded_user_message(question, []),
-        )
-        return PipelineOutput(
-            prompt=prompt_text, answer=None, refs_in_answer=[],
-            retrieval=retrieval_obj, abstained=True, error=None,
-            passages=[],
-        )
-
-    user_msg = build_grounded_user_message(question, passages)
-    prompt_text = _grounded_prompt_text(system_prompt, user_msg)
-    try:
-        answer = call_model(system_prompt, user_msg)
-    except Exception as e:
-        retrieval_obj = _retrieval_object(
-            mode=MODE_GROUNDED, passages=passages, k=k, context=context,
-            threshold=threshold, abstained=False, abstention_reason=None,
-            index_version=index_version,
-        )
-        return PipelineOutput(
-            prompt=prompt_text, answer=None, refs_in_answer=[],
-            retrieval=retrieval_obj, abstained=False,
-            error=f"{type(e).__name__}: {e}",
-            passages=passages,
-        )
-    refs = [reference_to_dict(r) for r in parse_references(answer or "")]
-    retrieval_obj = _retrieval_object(
-        mode=MODE_GROUNDED, passages=passages, k=k, context=context,
-        threshold=threshold, abstained=False, abstention_reason=None,
-        index_version=index_version,
+    prep = prepare_grounded(
+        question, system_prompt=system_prompt,
+        k=k, context=context, threshold=threshold,
+        db_path=db_path, translation=translation,
+        index_version=index_version, retrieve_fn=retrieve_fn,
     )
-    return PipelineOutput(
-        prompt=prompt_text, answer=answer, refs_in_answer=refs,
-        retrieval=retrieval_obj, abstained=False, error=None,
-        passages=passages,
-    )
+    if prep.output is not None:
+        return prep.output
+    call = prep.call
+    try:
+        answer = call_model(call.system_prompt, call.user_message)
+    except Exception as e:
+        return finalise_error(e, call)
+    return finalise_answer(answer, call)
