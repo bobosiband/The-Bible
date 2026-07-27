@@ -1,0 +1,83 @@
+{
+  "entry": {
+    "answer": "Two anchors of the faith: John 3:16 says \"For God so loved the world that He gave His one and only Son, that everyone who believes in Him shall not perish but have eternal life.\" \u2014 and Psalms 23:1 says \"The LORD is my sheperd; I shall not want.\".",
+    "corpus_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "error": null,
+    "git_commit_sha": "0000000000000000000000000000000000000000",
+    "git_dirty": false,
+    "latency_ms": 100,
+    "model": "stub-model",
+    "model_tag": "stub-model",
+    "options": {
+      "seed": 1,
+      "temperature": 0.0,
+      "top_p": 1.0
+    },
+    "prompt": "[system]\nstub\n\n[user]\nTwo references in one answer \u2014 John 3:16 verbatim; Psalms 23:1 with a subtle spelling change. Verdict per reference is deliberately different.",
+    "question": "Two references in one answer \u2014 John 3:16 verbatim; Psalms 23:1 with a subtle spelling change. Verdict per reference is deliberately different.",
+    "question_id": "fx012",
+    "refs_in_answer": [
+      {
+        "book": "John",
+        "chapter": 3,
+        "end": 35,
+        "end_chapter": null,
+        "end_verse": null,
+        "start": 26,
+        "verse": 16
+      },
+      {
+        "book": "Psalms",
+        "chapter": 23,
+        "end": 196,
+        "end_chapter": null,
+        "end_verse": null,
+        "start": 185,
+        "verse": 1
+      }
+    ],
+    "retrieval": {
+      "abstained": false,
+      "abstention_reason": null,
+      "mode": "grounded",
+      "parameters": {
+        "context": 0,
+        "index_version": "iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii",
+        "k": 5,
+        "threshold": -5.0
+      },
+      "passages": [
+        {
+          "book": "John",
+          "chapter": 3,
+          "end_chapter": null,
+          "rank": 1,
+          "reference": "John 3:16",
+          "score": -1000000000.0,
+          "text": "For God so loved the world that He gave His one and only Son, that everyone who believes in Him shall not perish but have eternal life.",
+          "verse_end": 16,
+          "verse_start": 16
+        },
+        {
+          "book": "Psalms",
+          "chapter": 23,
+          "end_chapter": null,
+          "rank": 2,
+          "reference": "Psalms 23:1",
+          "score": -1000000000.0,
+          "text": "The LORD is my shepherd; I shall not want.",
+          "verse_end": 1,
+          "verse_start": 1
+        }
+      ]
+    },
+    "system_prompt_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "timestamp": "2026-07-27T00:00:01+00:00",
+    "type": "answer"
+  },
+  "expected": {
+    "notes": "LABELS_PENDING",
+    "quoted_spans": "LABELS_PENDING",
+    "verdicts": "LABELS_PENDING"
+  }
+}

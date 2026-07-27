@@ -1,0 +1,63 @@
+{
+  "entry": {
+    "answer": "Jude 5 warns us: \"Although you are fully aware of this, I want to remind you that after Jesus had delivered His people out of the land of Egypt, He destroyed those who did not believe.\"",
+    "corpus_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "error": null,
+    "git_commit_sha": "0000000000000000000000000000000000000000",
+    "git_dirty": false,
+    "latency_ms": 100,
+    "model": "stub-model",
+    "model_tag": "stub-model",
+    "options": {
+      "seed": 1,
+      "temperature": 0.0,
+      "top_p": 1.0
+    },
+    "prompt": "[system]\nstub\n\n[user]\nJude 5 (parses as Jude 1:5) \u2014 exercises the single-chapter book rule end-to-end through the parser.",
+    "question": "Jude 5 (parses as Jude 1:5) \u2014 exercises the single-chapter book rule end-to-end through the parser.",
+    "question_id": "fx010",
+    "refs_in_answer": [
+      {
+        "book": "Jude",
+        "chapter": 1,
+        "end": 6,
+        "end_chapter": null,
+        "end_verse": null,
+        "start": 0,
+        "verse": 5
+      }
+    ],
+    "retrieval": {
+      "abstained": false,
+      "abstention_reason": null,
+      "mode": "grounded",
+      "parameters": {
+        "context": 0,
+        "index_version": "iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii",
+        "k": 5,
+        "threshold": -5.0
+      },
+      "passages": [
+        {
+          "book": "Jude",
+          "chapter": 1,
+          "end_chapter": null,
+          "rank": 1,
+          "reference": "Jude 1:5",
+          "score": -1000000000.0,
+          "text": "Although you are fully aware of this, I want to remind you that after Jesus had delivered His people out of the land of Egypt, He destroyed those who did not believe.",
+          "verse_end": 5,
+          "verse_start": 5
+        }
+      ]
+    },
+    "system_prompt_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "timestamp": "2026-07-27T00:00:01+00:00",
+    "type": "answer"
+  },
+  "expected": {
+    "notes": "LABELS_PENDING",
+    "quoted_spans": "LABELS_PENDING",
+    "verdicts": "LABELS_PENDING"
+  }
+}

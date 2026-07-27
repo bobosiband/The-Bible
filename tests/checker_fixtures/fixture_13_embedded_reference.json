@@ -1,0 +1,63 @@
+{
+  "entry": {
+    "answer": "When Paul writes in Romans 8:28 that \"And we know that God works all things together for the good of those who love Him, who are called according to His purpose.\", he is comforting believers under pressure.",
+    "corpus_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "error": null,
+    "git_commit_sha": "0000000000000000000000000000000000000000",
+    "git_dirty": false,
+    "latency_ms": 100,
+    "model": "stub-model",
+    "model_tag": "stub-model",
+    "options": {
+      "seed": 1,
+      "temperature": 0.0,
+      "top_p": 1.0
+    },
+    "prompt": "[system]\nstub\n\n[user]\nReference is embedded mid-sentence rather than opening the sentence \u2014 checker must handle nearby-text extraction from either position.",
+    "question": "Reference is embedded mid-sentence rather than opening the sentence \u2014 checker must handle nearby-text extraction from either position.",
+    "question_id": "fx013",
+    "refs_in_answer": [
+      {
+        "book": "Romans",
+        "chapter": 8,
+        "end": 31,
+        "end_chapter": null,
+        "end_verse": null,
+        "start": 20,
+        "verse": 28
+      }
+    ],
+    "retrieval": {
+      "abstained": false,
+      "abstention_reason": null,
+      "mode": "grounded",
+      "parameters": {
+        "context": 0,
+        "index_version": "iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii",
+        "k": 5,
+        "threshold": -5.0
+      },
+      "passages": [
+        {
+          "book": "Romans",
+          "chapter": 8,
+          "end_chapter": null,
+          "rank": 1,
+          "reference": "Romans 8:28",
+          "score": -1000000000.0,
+          "text": "And we know that God works all things together for the good of those who love Him, who are called according to His purpose.",
+          "verse_end": 28,
+          "verse_start": 28
+        }
+      ]
+    },
+    "system_prompt_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "timestamp": "2026-07-27T00:00:01+00:00",
+    "type": "answer"
+  },
+  "expected": {
+    "notes": "LABELS_PENDING",
+    "quoted_spans": "LABELS_PENDING",
+    "verdicts": "LABELS_PENDING"
+  }
+}

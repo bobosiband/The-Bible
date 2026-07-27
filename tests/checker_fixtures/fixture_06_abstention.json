@@ -1,0 +1,41 @@
+{
+  "entry": {
+    "answer": null,
+    "corpus_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "error": null,
+    "git_commit_sha": "0000000000000000000000000000000000000000",
+    "git_dirty": false,
+    "latency_ms": 100,
+    "model": "stub-model",
+    "model_tag": "stub-model",
+    "options": {
+      "seed": 1,
+      "temperature": 0.0,
+      "top_p": 1.0
+    },
+    "prompt": "[system]\nstub\n\n[user]\nGrounded abstention \u2014 retrieval returned no passages above the threshold and the model was not called.",
+    "question": "Grounded abstention \u2014 retrieval returned no passages above the threshold and the model was not called.",
+    "question_id": "fx006",
+    "refs_in_answer": [],
+    "retrieval": {
+      "abstained": true,
+      "abstention_reason": "no passages retrieved for the query",
+      "mode": "grounded",
+      "parameters": {
+        "context": 0,
+        "index_version": "iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii",
+        "k": 5,
+        "threshold": -5.0
+      },
+      "passages": []
+    },
+    "system_prompt_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "timestamp": "2026-07-27T00:00:01+00:00",
+    "type": "answer"
+  },
+  "expected": {
+    "notes": "LABELS_PENDING",
+    "quoted_spans": "LABELS_PENDING",
+    "verdicts": "LABELS_PENDING"
+  }
+}

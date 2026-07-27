@@ -1,0 +1,30 @@
+{
+  "entry": {
+    "answer": null,
+    "corpus_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "error": "TimeoutError: simulated read timeout after 120s",
+    "git_commit_sha": "0000000000000000000000000000000000000000",
+    "git_dirty": false,
+    "latency_ms": 100,
+    "model": "stub-model",
+    "model_tag": "stub-model",
+    "options": {
+      "seed": 1,
+      "temperature": 0.0,
+      "top_p": 1.0
+    },
+    "prompt": "[system]\nstub\n\n[user]\nModel call failed; error field populated, no answer text.",
+    "question": "Model call failed; error field populated, no answer text.",
+    "question_id": "fx007",
+    "refs_in_answer": [],
+    "retrieval": null,
+    "system_prompt_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "timestamp": "2026-07-27T00:00:01+00:00",
+    "type": "answer"
+  },
+  "expected": {
+    "notes": "LABELS_PENDING",
+    "quoted_spans": "LABELS_PENDING",
+    "verdicts": "LABELS_PENDING"
+  }
+}
